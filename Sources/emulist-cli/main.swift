@@ -14,6 +14,7 @@ import simd
 //   emulist-cli sheet <clip> <out.png> [options]      Before + every stock, as a contact sheet
 //   emulist-cli export <clip> <out.mov> [options]     Export the graded clip
 //   emulist-cli tag-apple-log <clip> <out.mov>        Remux, declaring Apple Log the way an iPhone does
+//   emulist-cli verify-decode <clip>                  Viewer (player) and export (reader) decodes must be identical
 //
 // Options: --time <seconds> --stock <id> --intensity <0-100> --scale <0-1> --split <0-1>
 //          --settings <grade.json> --codec <prores|hevc|h264> --clean 1 (no grain/halation/bloom)
@@ -193,6 +194,46 @@ func tagAppleLog(_ source: URL, to destination: URL) async throws {
     if let error = writer.error { throw error }
 }
 
+// MARK: Decode verification
+
+/// First frame as the viewer receives it: AVPlayer + AVPlayerItemVideoOutput, paused at time zero.
+@MainActor
+func playerFirstFrame(_ url: URL) async throws -> CVPixelBuffer {
+    let item = AVPlayerItem(url: url)
+    let output = DecodeFormat.makePlayerOutput()
+    item.add(output)
+    let player = AVPlayer(playerItem: item)
+    for _ in 0..<300 where item.status != .readyToPlay { try await Task.sleep(for: .milliseconds(10)) }
+    await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
+    for _ in 0..<300 {
+        if let buffer = output.copyPixelBuffer(forItemTime: .zero, itemTimeForDisplay: nil) { return buffer }
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    throw CLIError.usage("The player produced no frame")
+}
+
+/// Largest difference between two Y'CbCr buffers, in code values, over both planes.
+func maxDifference(_ a: CVPixelBuffer, _ b: CVPixelBuffer) -> Int {
+    CVPixelBufferLockBaseAddress(a, .readOnly)
+    CVPixelBufferLockBaseAddress(b, .readOnly)
+    defer {
+        CVPixelBufferUnlockBaseAddress(a, .readOnly)
+        CVPixelBufferUnlockBaseAddress(b, .readOnly)
+    }
+    var worst = 0
+    for plane in 0..<CVPixelBufferGetPlaneCount(a) {
+        let rows = CVPixelBufferGetHeightOfPlane(a, plane)
+        let samples = CVPixelBufferGetWidthOfPlane(a, plane) * (plane == 0 ? 1 : 2)
+        for row in 0..<rows {
+            let pa = CVPixelBufferGetBaseAddressOfPlane(a, plane)!.advanced(by: row * CVPixelBufferGetBytesPerRowOfPlane(a, plane))
+            let pb = CVPixelBufferGetBaseAddressOfPlane(b, plane)!.advanced(by: row * CVPixelBufferGetBytesPerRowOfPlane(b, plane))
+            let ra = pa.assumingMemoryBound(to: UInt16.self), rb = pb.assumingMemoryBound(to: UInt16.self)
+            for i in 0..<samples { worst = max(worst, abs(Int(ra[i] >> 6) - Int(rb[i] >> 6))) }
+        }
+    }
+    return worst
+}
+
 // MARK: Rendering
 
 func renderFrame(_ url: URL, at time: Double, settings: [GradeSettings], scale: Double, split: Double) async throws -> [CGImage] {
@@ -205,7 +246,7 @@ func renderFrame(_ url: URL, at time: Double, settings: [GradeSettings], scale: 
         guard let commandBuffer = context.queue.makeCommandBuffer() else { throw RenderError.textureCreation }
         let texture = try renderer.encode(
             frame.pixelBuffer, frameIndex: info.frameIndex(at: frame.time.seconds), settings: settings,
-            options: .init(scale: scale, beforeSplit: split), into: commandBuffer)
+            options: .init(scale: scale, beforeSplit: split, orientation: info.transform), into: commandBuffer)
         commandBuffer.commit()
         commandBuffer.waitUntilCompleted()
         return try renderer.makeImage(from: texture, output: settings.output)
@@ -299,7 +340,7 @@ do {
                 for i in 0..<30 {
                     let commandBuffer = context.queue.makeCommandBuffer()!
                     _ = try renderer.encode(frame.pixelBuffer, frameIndex: i, settings: settings,
-                                            options: .init(scale: scale), into: commandBuffer)
+                                            options: .init(scale: scale, orientation: info.transform), into: commandBuffer)
                     commandBuffer.commit()
                     if i == 29 { await commandBuffer.completed() }
                 }
@@ -309,6 +350,14 @@ do {
                 }
             }
         }
+    case "verify-decode":
+        guard paths.count == 1 else { throw CLIError.usage("verify-decode <clip>") }
+        let reader = try await FrameReader(info: try await MediaInfo.inspect(paths[0]))
+        guard let exportFrame = try reader.next() else { throw CLIError.usage("empty clip") }
+        let viewerFrame = try await playerFirstFrame(paths[0])
+        let difference = maxDifference(viewerFrame, exportFrame.pixelBuffer)
+        print("viewer vs export decode: max difference \(difference) code values (10-bit)")
+        if difference > 0 { exit(2) }
     case "tag-apple-log":
         guard paths.count == 2 else { throw CLIError.usage("tag-apple-log <clip> <out.mov>") }
         try await tagAppleLog(paths[0], to: paths[1])

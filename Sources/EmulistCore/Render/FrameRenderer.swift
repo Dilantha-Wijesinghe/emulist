@@ -1,3 +1,4 @@
+import CoreGraphics
 import CoreVideo
 import Metal
 import MetalPerformanceShaders
@@ -15,11 +16,19 @@ public final class FrameRenderer: @unchecked Sendable {
         public var scale: Double = 1
         /// Fraction of the frame width (from the left) that shows the ungraded "before" image.
         public var beforeSplit: Double = 0
+        /// The clip's display transform; frames are rendered upright.
+        public var orientation: CGAffineTransform = .identity
 
-        public init(scale: Double = 1, beforeSplit: Double = 0) {
+        public init(scale: Double = 1, beforeSplit: Double = 0, orientation: CGAffineTransform = .identity) {
             self.scale = scale
             self.beforeSplit = beforeSplit
+            self.orientation = orientation
         }
+    }
+
+    /// Output size for an upright frame of `width`×`height` at `scale`: even dimensions, as encoders require.
+    public static func outputSize(width: Int, height: Int, scale: Double) -> (width: Int, height: Int) {
+        (max(16, Int((Double(width) * scale).rounded()) & ~1), max(16, Int((Double(height) * scale).rounded()) & ~1))
     }
 
     private struct FilmLUTKey: Hashable {
@@ -45,13 +54,13 @@ public final class FrameRenderer: @unchecked Sendable {
         _ pixelBuffer: CVPixelBuffer, frameIndex: Int, settings: GradeSettings, options: Options = .init(),
         into commandBuffer: MTLCommandBuffer
     ) throws -> MTLTexture {
-        let sourceWidth = CVPixelBufferGetWidth(pixelBuffer)
-        let sourceHeight = CVPixelBufferGetHeight(pixelBuffer)
-        let width = max(16, Int((Double(sourceWidth) * options.scale).rounded()))
-        let height = max(16, Int((Double(sourceHeight) * options.scale).rounded()))
+        let stored = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
+        let upright = options.orientation.uprightSize(stored)
+        let (width, height) = Self.outputSize(width: Int(upright.width), height: Int(upright.height), scale: options.scale)
         let effects = EffectParameters(settings, height: Double(height))
 
-        let original = try decode(pixelBuffer, settings: settings, size: (width, height), into: commandBuffer)
+        let original = try decode(pixelBuffer, settings: settings, orientation: options.orientation,
+                                  size: (width, height), into: commandBuffer)
         let working = effects.hasSoftness
             ? try blurred(original, sigma: effects.softnessSigma, key: "soft", into: commandBuffer) : original
         let (bloom, halation) = try lightEffects(working, effects, into: commandBuffer)
@@ -107,8 +116,8 @@ public final class FrameRenderer: @unchecked Sendable {
 
     // MARK: Passes
 
-    private func decode(_ pixelBuffer: CVPixelBuffer, settings: GradeSettings, size: (Int, Int),
-                        into commandBuffer: MTLCommandBuffer) throws -> MTLTexture {
+    private func decode(_ pixelBuffer: CVPixelBuffer, settings: GradeSettings, orientation: CGAffineTransform,
+                        size: (Int, Int), into commandBuffer: MTLCommandBuffer) throws -> MTLTexture {
         guard CVPixelBufferGetPlaneCount(pixelBuffer) == 2 else { throw RenderError.unsupportedPixelBuffer }
         let luma = try context.texture(from: pixelBuffer, plane: 0, format: .r16Unorm)
         let chroma = try context.texture(from: pixelBuffer, plane: 1, format: .rg16Unorm)
@@ -117,7 +126,9 @@ public final class FrameRenderer: @unchecked Sendable {
 
         let output = try texture("working", width: size.0, height: size.1)
         let profile = settings.cameraProfile
-        var uniforms = InputTransform.uniforms(settings, ycbcr: pixelBuffer.ycbcrMatrix ?? profile.defaultMatrix)
+        var uniforms = InputTransform.uniforms(
+            settings, ycbcr: pixelBuffer.ycbcrMatrix ?? profile.defaultMatrix, orientation: orientation,
+            bufferSize: CGSize(width: lumaTexture.width, height: lumaTexture.height))
         let table = try decodeTable(profile.transfer)
         context.dispatch("input_transform", on: commandBuffer, size: size) { encoder in
             encoder.setTextures([lumaTexture, chromaTexture, output], range: 0..<3)

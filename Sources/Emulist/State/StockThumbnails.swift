@@ -10,15 +10,17 @@ final class StockThumbnails {
 
     @ObservationIgnored private var frame: CVPixelBuffer?
     @ObservationIgnored private var settings = GradeSettings()
+    @ObservationIgnored private var orientation = CGAffineTransform.identity
     @ObservationIgnored private var pending: Task<Void, Never>?
     @ObservationIgnored private lazy var renderer: FrameRenderer? = (try? MetalContext.make()).map(FrameRenderer.init)
 
     private static let height = 150.0
 
-    func reset(settings: GradeSettings) {
+    func reset(settings: GradeSettings, orientation: CGAffineTransform) {
         frame = nil
         images = [:]
         self.settings = settings
+        self.orientation = orientation
     }
 
     func frameChanged(_ buffer: CVPixelBuffer) {
@@ -43,12 +45,14 @@ final class StockThumbnails {
 
     private func render() {
         guard let frame, let renderer else { return }
-        let scale = min(1, Self.height / Double(CVPixelBufferGetHeight(frame)))
+        let upright = orientation.uprightSize(CGSize(width: CVPixelBufferGetWidth(frame), height: CVPixelBufferGetHeight(frame)))
+        let scale = min(1, Self.height / upright.height)
         for stock in FilmStock.builtIn {
             let look = Self.thumbnailLook(settings, stock: stock)
             guard let commandBuffer = renderer.context.queue.makeCommandBuffer(),
                   let texture = try? renderer.encode(frame, frameIndex: 0, settings: look,
-                                                     options: .init(scale: scale), into: commandBuffer)
+                                                     options: .init(scale: scale, orientation: orientation),
+                                                     into: commandBuffer)
             else { continue }
             commandBuffer.commit()
             images[stock.id] = try? renderer.makeImage(from: texture, output: look.output)

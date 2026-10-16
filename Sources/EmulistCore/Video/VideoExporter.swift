@@ -64,12 +64,12 @@ public struct ExportSettings: Codable, Equatable, Sendable {
             }
         }
 
-        /// Scale relative to the source, never upscaling.
-        func scale(sourceHeight: Int) -> Double {
+        /// Scale relative to the source (by its short side, so vertical clips work too), never upscaling.
+        func scale(shortSide: Int) -> Double {
             switch self {
             case .source: 1
-            case .uhd: min(1, 2160 / Double(sourceHeight))
-            case .hd: min(1, 1080 / Double(sourceHeight))
+            case .uhd: min(1, 2160 / Double(shortSide))
+            case .hd: min(1, 1080 / Double(shortSide))
             }
         }
     }
@@ -124,9 +124,8 @@ public final class VideoExporter: @unchecked Sendable {
 
     public func run(progress: @escaping @Sendable (Double) -> Void) async throws {
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let scale = export.resolution.scale(sourceHeight: info.height)
-        let width = Int((Double(info.width) * scale).rounded()) & ~1
-        let height = Int((Double(info.height) * scale).rounded()) & ~1
+        let scale = export.resolution.scale(shortSide: min(info.width, info.height))
+        let (width, height) = FrameRenderer.outputSize(width: info.width, height: info.height, scale: scale)
 
         let writer = try AVAssetWriter(outputURL: temporary, fileType: export.codec.fileType)
         let video = try await VideoPump(
@@ -135,7 +134,7 @@ public final class VideoExporter: @unchecked Sendable {
         let audio = export.includeAudio ? try await AudioPassthrough(info: info, writer: writer, codec: export.codec) : nil
 
         guard writer.startWriting() else { throw ExportError.cannotWrite(writer.error?.localizedDescription ?? "") }
-        writer.startSession(atSourceTime: .zero)
+        writer.startSession(atSourceTime: video.startTime)
 
         let isCancelled: @Sendable () -> Bool = { [self] in self.isCancelled }
         try await withThrowingTaskGroup(of: Void.self) { group in
@@ -191,17 +190,21 @@ private final class VideoPump: @unchecked Sendable {
     private let writer: AVAssetWriter
     private let input: AVAssetWriterInput
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    /// The first decoded frame, read up front so the session starts at its timestamp (no leading gap).
+    private var first: (pixelBuffer: CVPixelBuffer, time: CMTime)?
+    var startTime: CMTime { first?.time ?? .zero }
 
     init(info: MediaInfo, settings: GradeSettings, codec: ExportSettings.Codec, scale: Double, writer: AVAssetWriter,
          outputSettings: [String: Any], size: (width: Int, height: Int)) async throws {
         self.info = info
         self.settings = settings
         self.writer = writer
-        options = FrameRenderer.Options(scale: scale)
+        options = FrameRenderer.Options(scale: scale, orientation: info.transform)
         format = codec.pixelFormat
         context = try MetalContext.make()
         renderer = FrameRenderer(context: context)
         frames = try await FrameReader(info: info)
+        first = try frames.next()
         input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
         input.expectsMediaDataInRealTime = false
         adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
@@ -217,12 +220,20 @@ private final class VideoPump: @unchecked Sendable {
     func run(isCancelled: @escaping @Sendable () -> Bool, progress: @escaping @Sendable (Double) -> Void) async throws {
         let total = Double(info.frameCount)
         try await input.drain(on: "emulist.export.video") { [self] in
-            guard !isCancelled(), let frame = try frames.next() else { return false }
+            guard !isCancelled(), let frame = try nextFrame() else { return false }
             try write(frame.pixelBuffer, at: frame.time)
             progress(min(1, (frame.time.seconds * info.frameRate + 1) / total))
             return true
         }
         if isCancelled() { frames.cancel() }
+    }
+
+    private func nextFrame() throws -> (pixelBuffer: CVPixelBuffer, time: CMTime)? {
+        if let pending = first {
+            first = nil
+            return pending
+        }
+        return try frames.next()
     }
 
     private func write(_ source: CVPixelBuffer, at time: CMTime) throws {
@@ -260,10 +271,17 @@ private final class AudioPassthrough: @unchecked Sendable {
             let hint = try await track.load(.formatDescriptions).first
             input = AVAssetWriterInput(mediaType: .audio, outputSettings: nil, sourceFormatHint: hint)
         } else {
-            output = AVAssetReaderTrackOutput(track: track, outputSettings: [AVFormatIDKey: kAudioFormatLinearPCM])
+            // AAC at the source's rate; mono stays mono, anything beyond stereo is downmixed by the reader.
+            let source = try await track.load(.formatDescriptions).first
+                .flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
+            let channels = min(2, max(1, Int(source?.mChannelsPerFrame ?? 2)))
+            let sampleRate = source.map { $0.mSampleRate } ?? 48_000
+            output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM, AVNumberOfChannelsKey: channels, AVSampleRateKey: sampleRate,
+            ])
             input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
-                AVFormatIDKey: kAudioFormatMPEG4AAC, AVNumberOfChannelsKey: 2, AVSampleRateKey: 48_000,
-                AVEncoderBitRateKey: 256_000,
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVNumberOfChannelsKey: channels, AVSampleRateKey: sampleRate,
+                AVEncoderBitRateKey: channels == 1 ? 128_000 : 256_000,
             ])
         }
         input.expectsMediaDataInRealTime = false

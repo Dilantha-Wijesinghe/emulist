@@ -17,6 +17,7 @@ enum ShaderSource {
         float4 ycbcrNorm;      // Y' = y * x - y ; C = c * z - w
         float4 workingRows[3]; // working linear = rows · camera linear
         float4 transfer;       // x: decode table size
+        float4 orientation[2]; // upright output uv -> stored buffer uv (rows of a 2×3 affine)
     };
 
     static float decode(float v, constant float *table, float size) {
@@ -32,7 +33,8 @@ enum ShaderSource {
                                 constant float *table [[buffer(1)]],
                                 uint2 gid [[thread_position_in_grid]]) {
         if (gid.x >= out.get_width() || gid.y >= out.get_height()) return;
-        float2 uv = (float2(gid) + 0.5) / float2(out.get_width(), out.get_height());
+        float3 upright = float3((float2(gid) + 0.5) / float2(out.get_width(), out.get_height()), 1);
+        float2 uv = float2(dot(u.orientation[0].xyz, upright), dot(u.orientation[1].xyz, upright));
         float3 ycc = float3(luma.sample(linearClamp, uv).r * u.ycbcrNorm.x - u.ycbcrNorm.y,
                             chroma.sample(linearClamp, uv).rg * u.ycbcrNorm.z - u.ycbcrNorm.w);
         float3 code = float3(dot(u.ycbcrRows[0].xyz, ycc), dot(u.ycbcrRows[1].xyz, ycc), dot(u.ycbcrRows[2].xyz, ycc));

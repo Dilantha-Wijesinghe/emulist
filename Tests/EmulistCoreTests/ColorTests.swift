@@ -148,3 +148,26 @@ import simd
         }
     }
 }
+
+@Suite struct OrientationTests {
+    // A typical iPhone portrait transform: 90° clockwise, translated back into view.
+    private let portrait = CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 1080, ty: 0)
+    private let stored = CGSize(width: 1920, height: 1080)
+
+    @Test func portraitIsUprightSize() {
+        #expect(portrait.uprightSize(stored) == CGSize(width: 1080, height: 1920))
+    }
+
+    @Test func portraitMapsCornersCorrectly() {
+        let m = portrait.uprightToStored(bufferSize: stored)
+        // The displayed top-left pixel is the stored bottom-left one (T maps (0, 1080) to (0, 0)).
+        let topLeft = CGPoint(x: 0, y: 0).applying(m)
+        #expect(abs(topLeft.x - 0) < 1e-9 && abs(topLeft.y - 1) < 1e-9)
+        let topRight = CGPoint(x: 1, y: 0).applying(m)
+        #expect(abs(topRight.x - 0) < 1e-9 && abs(topRight.y - 0) < 1e-9)
+    }
+
+    @Test func identityIsUntouched() {
+        #expect(CGAffineTransform.identity.uprightToStored(bufferSize: stored).isIdentity)
+    }
+}

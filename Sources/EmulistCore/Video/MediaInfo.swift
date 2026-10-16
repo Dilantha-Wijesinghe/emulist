@@ -47,6 +47,8 @@ public struct MediaInfo: Sendable, Equatable {
     /// Reverse-DNS identifier of a LOG curve declared by the camera (e.g. Apple Log), if any.
     public var logTransferFunction: String?
     public var hasAudio: Bool
+    /// The track's display transform (e.g. a 90° rotation for footage shot vertically).
+    public var transform: CGAffineTransform = .identity
     /// A camera profile we can identify with confidence from the file's metadata, if any.
     public var detectedProfile: CameraProfile?
 
@@ -77,7 +79,7 @@ public struct MediaInfo: Sendable, Equatable {
             frameRate: rate > 0 ? Double(rate) : 30, duration: duration,
             codec: format.map { fourCC(CMFormatDescriptionGetMediaSubType($0)) } ?? "?",
             colorPrimaries: primaries, transferFunction: transfer, logTransferFunction: log, hasAudio: hasAudio,
-            detectedProfile: detectProfile(log: log, transfer: transfer))
+            transform: transform, detectedProfile: detectProfile(log: log, transfer: transfer))
     }
 
     /// Only claims a profile when the metadata is explicit; otherwise the user is asked.

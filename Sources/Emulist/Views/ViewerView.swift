@@ -41,6 +41,7 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
     private var frameSerial = 0
     private var mediaURL: URL?
     private var lastState: RenderState?
+    private var wasPlaying = false
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -74,11 +75,14 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
             if !playback.isPlaying { workspace.thumbnails.frameChanged(next.buffer) }
         }
         guard let frame else { return }
+        // Stock previews follow the frame you stop on.
+        if wasPlaying, !playback.isPlaying { workspace.thumbnails.frameChanged(frame.buffer) }
+        wasPlaying = playback.isPlaying
 
         let settings = workspace.settings
         let state = RenderState(
             frame: frameSerial, settings: settings, beforeSplit: workspace.beforeSplit,
-            scale: workspace.quality.scale(sourceHeight: media.height), drawableSize: view.drawableSize)
+            scale: workspace.quality.scale(shortSide: min(media.width, media.height)), drawableSize: view.drawableSize)
         guard state != lastState else { return }
 
         let colorSpace = settings.output.colorSpace
@@ -87,7 +91,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         do {
             let image = try renderer.encode(
                 frame.buffer, frameIndex: frame.frameIndex, settings: settings,
-                options: .init(scale: state.scale, beforeSplit: state.beforeSplit), into: commandBuffer)
+                options: .init(scale: state.scale, beforeSplit: state.beforeSplit, orientation: media.transform),
+                into: commandBuffer)
             present(image, in: view, commandBuffer: commandBuffer)
             lastState = state
         } catch {

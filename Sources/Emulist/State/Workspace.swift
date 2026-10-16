@@ -13,12 +13,12 @@ enum PreviewQuality: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var name: String { rawValue.capitalized }
 
-    /// Processing scale for a source of the given height (half/quarter never drop below ~540 lines).
-    func scale(sourceHeight: Int) -> Double {
+    /// Processing scale for a source whose short side is `shortSide` (reduced previews keep ≥ ~540 lines).
+    func scale(shortSide: Int) -> Double {
         switch self {
         case .full: 1
-        case .half: max(0.5, min(1, 540 / Double(sourceHeight)))
-        case .quarter: max(0.25, min(1, 540 / Double(sourceHeight)))
+        case .half: max(0.5, min(1, 540 / Double(shortSide)))
+        case .quarter: max(0.25, min(1, 540 / Double(shortSide)))
         }
     }
 }
@@ -207,7 +207,7 @@ final class Workspace {
         history.reset()
         updateUndoState()
         playback.load(info)
-        thumbnails.reset(settings: settings)
+        thumbnails.reset(settings: settings, orientation: info.transform)
         NSDocumentController.shared.noteNewRecentDocumentURL(projectURL ?? info.url)
     }
 

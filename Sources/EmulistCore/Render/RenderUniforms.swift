@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import simd
 
@@ -9,6 +10,7 @@ struct InputUniforms {
     var ycbcrNorm: SIMD4<Float>
     var workingRows: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>)
     var transfer: SIMD4<Float>
+    var orientation: (SIMD4<Float>, SIMD4<Float>)
 }
 
 struct PrefilterUniforms {
@@ -67,11 +69,33 @@ public enum InputTransform {
         return (rows, norm)
     }
 
-    static func uniforms(_ s: GradeSettings, ycbcr: CameraProfile.YCbCrMatrix) -> InputUniforms {
+    static func uniforms(
+        _ s: GradeSettings, ycbcr: CameraProfile.YCbCrMatrix, orientation: CGAffineTransform, bufferSize: CGSize
+    ) -> InputUniforms {
         let y = ycbcrUniforms(ycbcr)
+        let m = orientation.uprightToStored(bufferSize: bufferSize)
         return InputUniforms(
             ycbcrRows: y.rows.rows4, ycbcrNorm: y.norm, workingRows: matrix(for: s).rows4,
-            transfer: SIMD4(Float(LUTBaker.transferLUTSize), 0, 0, 0))
+            transfer: SIMD4(Float(LUTBaker.transferLUTSize), 0, 0, 0),
+            orientation: (SIMD4(Float(m.a), Float(m.c), Float(m.tx), 0), SIMD4(Float(m.b), Float(m.d), Float(m.ty), 0)))
+    }
+}
+
+extension CGAffineTransform {
+    /// Size of a stored frame once displayed with this transform (a track's `preferredTransform`).
+    public func uprightSize(_ stored: CGSize) -> CGSize {
+        let bounds = CGRect(origin: .zero, size: stored).applying(self)
+        return CGSize(width: bounds.width.rounded(), height: bounds.height.rounded())
+    }
+
+    /// Maps normalized upright (displayed) coordinates to normalized stored-buffer coordinates.
+    /// Handles rotations and mirroring, whatever the transform's translation convention.
+    func uprightToStored(bufferSize: CGSize) -> CGAffineTransform {
+        let bounds = CGRect(origin: .zero, size: bufferSize).applying(self)
+        let storedToUpright = concatenating(CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
+        return CGAffineTransform(scaleX: bounds.width, y: bounds.height)
+            .concatenating(storedToUpright.inverted())
+            .concatenating(CGAffineTransform(scaleX: 1 / bufferSize.width, y: 1 / bufferSize.height))
     }
 }
 
