@@ -266,7 +266,7 @@ do {
         }
         let images = try await renderFrame(
             paths[0], at: args.double("time") ?? 0, settings: looks, scale: args.double("scale") ?? 0.5, split: 0)
-        try writePNG(contactSheet(images, columns: 3), to: paths[1])
+        try writePNG(contactSheet(images, columns: Int(args.double("columns") ?? 4)), to: paths[1])
     case "export":
         guard paths.count == 2 else { throw CLIError.usage("export <clip> <out.mov>") }
         let info = try await MediaInfo.inspect(paths[0])
@@ -278,6 +278,37 @@ do {
             FileHandle.standardError.write(Data("\rexporting \(Int(progress * 100))%".utf8))
         }
         print(String(format: "\ndone in %.1fs", Date().timeIntervalSince(start)))
+    case "bench":
+        guard paths.count == 1 else { throw CLIError.usage("bench <clip>") }
+        let settings = try args.settings()
+        var start = Date()
+        for i in 0..<10 {
+            var s = settings
+            s.contrast = Double(i)
+            _ = LUTBaker.filmLUT(FilmModel(response: FilmResponse(for: s), output: s.output))
+        }
+        print(String(format: "film LUT bake: %.1f ms", Date().timeIntervalSince(start) * 100))
+        let info = try await MediaInfo.inspect(paths[0])
+        let reader = try await FrameReader(info: info)
+        guard let frame = try reader.next() else { throw CLIError.usage("empty clip") }
+        let context = try MetalContext.make()
+        let renderer = FrameRenderer(context: context)
+        for scale in [1.0, 0.5] {
+            for pass in 0..<2 {
+                start = Date()
+                for i in 0..<30 {
+                    let commandBuffer = context.queue.makeCommandBuffer()!
+                    _ = try renderer.encode(frame.pixelBuffer, frameIndex: i, settings: settings,
+                                            options: .init(scale: scale), into: commandBuffer)
+                    commandBuffer.commit()
+                    if i == 29 { await commandBuffer.completed() }
+                }
+                if pass == 1 {
+                    print(String(format: "%dx%d @ %.2f: %.2f ms/frame", info.width, info.height, scale,
+                                 Date().timeIntervalSince(start) * 1000 / 30))
+                }
+            }
+        }
     case "tag-apple-log":
         guard paths.count == 2 else { throw CLIError.usage("tag-apple-log <clip> <out.mov>") }
         try await tagAppleLog(paths[0], to: paths[1])

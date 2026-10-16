@@ -54,7 +54,7 @@ public struct FilmResponse: Codable, Hashable, Sendable {
 
     public static let neutral = FilmResponse(
         exposure: 0, crosstalk: [1, 0, 0, 0, 1, 0, 0, 0, 1], separation: 1, shoulderStart: 3.5, shoulderRange: 5,
-        balance: .zero, contrast: 1.45, channelContrast: [1, 1, 1], toe: 0.85, rolloff: 1.6, midGrey: 0.16,
+        balance: .zero, contrast: 1.7, channelContrast: [1, 1, 1], toe: 0.85, rolloff: 1.0, midGrey: 0.16,
         black: .zero, white: [1, 1, 1], printSaturation: 1)
 
     public func mixed(with other: FilmResponse, amount t: Double) -> FilmResponse {

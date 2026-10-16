@@ -152,6 +152,10 @@ private struct OutputSection: View {
             ) {
                 ForEach(OutputTransform.allCases) { Text($0.name).tag($0) }
             }
+            Text(workspace.settings.output.detail)
+                .font(.system(size: 10.5))
+                .foregroundStyle(Theme.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
             LabeledPicker(title: "Preview", selection: $workspace.quality) {
                 ForEach(PreviewQuality.allCases) { Text($0.name).tag($0) }
             }
