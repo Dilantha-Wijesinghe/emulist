@@ -37,28 +37,42 @@ public struct CameraProfile: Identifiable, Hashable, Sendable {
     public static func with(id: String) -> CameraProfile? { all.first { $0.id == id } }
 }
 
-/// The delivery encoding. Each case pairs an encoding with the color space the preview is tagged with,
-/// so the viewer shows exactly what a color-managed player will show for the exported file.
+/// The delivery encoding. Both cases show the same image in Emulist's viewer; they differ in which players
+/// reproduce it exactly. The file is tagged Rec.709 (1-1-1) either way.
 public enum OutputTransform: String, Codable, CaseIterable, Identifiable, Sendable {
-    /// Rec.709 encoded with the BT.709 OETF. macOS and iOS decode this exactly, so the export looks
-    /// identical in QuickTime, Photos, Safari and on iPhone.
+    /// Encoded for Apple's video pipeline, which decodes Rec.709 with gamma ≈ 1.961: QuickTime, Photos,
+    /// Safari, iPhone and iPad show exactly what the viewer shows.
     case rec709Apple
-    /// Rec.709 encoded for a gamma 2.4 reference display (broadcast / Resolve convention).
+    /// Encoded for a gamma 2.4 reference display (broadcast, DaVinci Resolve convention).
     case rec709Gamma24
 
     public var id: String { rawValue }
 
     public var name: String {
         switch self {
-        case .rec709Apple: "Rec.709 · Apple & Web"
+        case .rec709Apple: "Rec.709 · Apple Devices"
         case .rec709Gamma24: "Rec.709 · Gamma 2.4"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .rec709Apple: "Looks exactly like the viewer on Mac, iPhone and iPad."
+        case .rec709Gamma24: "Broadcast and grading-suite standard. Appears lighter in QuickTime."
         }
     }
 
     public var transfer: TransferFunction {
         switch self {
-        case .rec709Apple: .bt709
+        case .rec709Apple: .gamma1961
         case .rec709Gamma24: .gamma24
+        }
+    }
+
+    var displayGamma: Double {
+        switch self {
+        case .rec709Apple: 1.961
+        case .rec709Gamma24: 2.4
         }
     }
 

@@ -1,3 +1,5 @@
+import CoreGraphics
+import Foundation
 import Testing
 import simd
 @testable import EmulistCore
@@ -8,7 +10,7 @@ import simd
         #expect(abs(TransferFunction.appleLog.encode(0.18) - 0.48834) < 1e-4)
     }
 
-    @Test(arguments: [TransferFunction.appleLog, .sLog3, .vLog, .gamma24, .bt709])
+    @Test(arguments: TransferFunction.allCases)
     func roundTrips(_ tf: TransferFunction) {
         for linear in stride(from: 0.0, through: 8.0, by: 0.013) {
             #expect(abs(tf.decode(tf.encode(linear)) - linear) < 1e-9 * max(1, linear))
@@ -130,5 +132,19 @@ import simd
         let stock = FilmStock.builtIn[1]
         settings.select(stock)
         #expect(settings.grain == stock.grain && settings.halation == stock.halation)
+    }
+}
+
+@Suite struct OutputTests {
+    /// The viewer is tagged with `colorSpace`; ColorSync must decode our encoding back to the same light.
+    @Test(arguments: OutputTransform.allCases)
+    func previewColorSpaceInvertsEncoding(_ output: OutputTransform) {
+        let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        for light in [0.01, 0.05, 0.16, 0.4, 0.8] {
+            let code = output.transfer.encode(light)
+            let color = CGColor(colorSpace: output.colorSpace, components: [code, code, code, 1])!
+            let decoded = color.converted(to: linear, intent: .relativeColorimetric, options: nil)!.components![1]
+            #expect(abs(decoded - light) / light < 0.01)
+        }
     }
 }

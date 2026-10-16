@@ -2,20 +2,16 @@ import CoreGraphics
 import Metal
 
 extension OutputTransform {
-    /// The color space whose decoding matches this output's encoding. Tagging the preview layer and
-    /// still images with it makes ColorSync show exactly what a player shows for the exported file.
+    /// The color space whose decoding matches this output's encoding (Rec.709 primaries, pure power curve).
+    /// Tagging the viewer and still images with it makes ColorSync show the display light the grade intends.
     public var colorSpace: CGColorSpace {
-        switch self {
-        case .rec709Apple:
-            return CGColorSpace(name: CGColorSpace.itur_709)!
-        case .rec709Gamma24:
-            let m = primaries.rgbToXYZ
-            let white = primaries.white.xyz
-            let matrix = (0..<3).flatMap { c in (0..<3).map { r in CGFloat(m[c][r]) } }
-            return CGColorSpace(
-                calibratedRGBWhitePoint: [CGFloat(white.x), 1, CGFloat(white.z)], blackPoint: [0, 0, 0],
-                gamma: [2.4, 2.4, 2.4], matrix: matrix)!
-        }
+        let m = primaries.rgbToXYZ
+        let white = primaries.white.xyz
+        let matrix = (0..<3).flatMap { c in (0..<3).map { r in CGFloat(m[c][r]) } }
+        let gamma = CGFloat(displayGamma)
+        return CGColorSpace(
+            calibratedRGBWhitePoint: [CGFloat(white.x), 1, CGFloat(white.z)], blackPoint: [0, 0, 0],
+            gamma: [gamma, gamma, gamma], matrix: matrix)!
     }
 }
 

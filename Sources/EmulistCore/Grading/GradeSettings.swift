@@ -29,7 +29,7 @@ public struct GradeSettings: Codable, Equatable, Sendable {
     public var bloom = BloomSettings()
 
     // Output
-    public var output = OutputTransform.rec709Gamma24
+    public var output = OutputTransform.rec709Apple
 
     public init() {}
 

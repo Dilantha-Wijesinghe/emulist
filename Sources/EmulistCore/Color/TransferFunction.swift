@@ -8,6 +8,9 @@ public enum TransferFunction: String, Codable, CaseIterable, Sendable {
     case vLog
     /// Display-referred Rec.709 video, interpreted through the BT.1886 (gamma 2.4) EOTF.
     case gamma24
+    /// The effective gamma Apple's video pipeline (AVFoundation, QuickTime, Photos, Safari) applies to
+    /// Rec.709-tagged video. Measured on macOS 26: matches a 1.961 power within 1%.
+    case gamma1961
     /// ITU-R BT.709 OETF.
     case bt709
     case linear
@@ -18,6 +21,7 @@ public enum TransferFunction: String, Codable, CaseIterable, Sendable {
         case .sLog3: SLog3.decode(v)
         case .vLog: VLog.decode(v)
         case .gamma24: pow(max(v, 0), 2.4)
+        case .gamma1961: pow(max(v, 0), 1.961)
         case .bt709: v < 4.5 * 0.018 ? v / 4.5 : pow((v + 0.099) / 1.099, 1 / 0.45)
         case .linear: v
         }
@@ -29,6 +33,7 @@ public enum TransferFunction: String, Codable, CaseIterable, Sendable {
         case .sLog3: SLog3.encode(l)
         case .vLog: VLog.encode(l)
         case .gamma24: pow(max(l, 0), 1 / 2.4)
+        case .gamma1961: pow(max(l, 0), 1 / 1.961)
         case .bt709: l < 0.018 ? 4.5 * l : 1.099 * pow(l, 0.45) - 0.099
         case .linear: l
         }
