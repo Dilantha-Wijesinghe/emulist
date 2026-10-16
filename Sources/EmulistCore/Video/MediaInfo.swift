@@ -20,12 +20,17 @@ public enum MediaError: LocalizedError {
 public enum DecodeFormat {
     public static let pixelFormat = kCVPixelFormatType_422YpCbCr10BiPlanarVideoRange
 
-    public static var attributes: [String: Any] {
+    public static var attributes: [String: any Sendable] {
         [
             kCVPixelBufferPixelFormatTypeKey as String: pixelFormat,
             kCVPixelBufferMetalCompatibilityKey as String: true,
-            kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
+            kCVPixelBufferIOSurfacePropertiesKey as String: [String: String](),
         ]
+    }
+
+    /// A player output that delivers frames in this format.
+    public static func makePlayerOutput() -> AVPlayerItemVideoOutput {
+        AVPlayerItemVideoOutput(pixelBufferAttributes: attributes)
     }
 }
 

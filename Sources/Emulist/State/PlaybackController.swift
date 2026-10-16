@@ -9,7 +9,7 @@ import Observation
 final class PlaybackController {
     @ObservationIgnored let player = AVPlayer()
     @ObservationIgnored private var output: AVPlayerItemVideoOutput?
-    @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var endWatcher: Task<Void, Never>?
 
     private(set) var info: MediaInfo?
     private(set) var currentTime = 0.0
@@ -25,18 +25,18 @@ final class PlaybackController {
 
     func load(_ info: MediaInfo) {
         let item = AVPlayerItem(url: info.url)
-        let output = AVPlayerItemVideoOutput(pixelBufferAttributes: DecodeFormat.attributes)
+        let output = DecodeFormat.makePlayerOutput()
         item.add(output)
         self.output = output
         self.info = info
         player.replaceCurrentItem(with: item)
         currentTime = 0
         isPlaying = false
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.didReachEnd() }
+        endWatcher?.cancel()
+        endWatcher = Task { [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: AVPlayerItem.didPlayToEndTimeNotification, object: item).map({ _ in () }) {
+                self?.didReachEnd()
+            }
         }
     }
 
