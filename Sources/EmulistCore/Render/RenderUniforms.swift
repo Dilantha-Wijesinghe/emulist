@@ -101,13 +101,15 @@ public struct EffectParameters: Equatable, Sendable {
             let warmth = s.halation.warmth / 100
             halationTint = RGB(1, 0.08 + 0.42 * warmth, 0.02 * warmth)
         }
+        if s.grain.enabled {
+            softnessSigma = s.grain.softness / 100 * 1.6 * height / Self.referenceHeight
+        }
         if s.grain.enabled, s.grain.amount > 0 {
             grainAmount = s.grain.amount / 100 * 0.38
             grainCanvasHeight = max(height, Self.referenceHeight)
             grainSigma = (0.45 + s.grain.size / 100 * 1.9) * grainCanvasHeight / Self.referenceHeight
             grainChroma = s.grain.chroma / 100
         }
-        softnessSigma = s.grain.softness / 100 * 1.6 * height / Self.referenceHeight
     }
 
     var hasBloom: Bool { bloomAmount > 0 }

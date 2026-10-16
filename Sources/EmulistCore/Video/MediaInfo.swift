@@ -39,6 +39,8 @@ public struct MediaInfo: Sendable, Equatable {
     public var codec: String
     public var colorPrimaries: String?
     public var transferFunction: String?
+    /// Reverse-DNS identifier of a LOG curve declared by the camera (e.g. Apple Log), if any.
+    public var logTransferFunction: String?
     public var hasAudio: Bool
     /// A camera profile we can identify with confidence from the file's metadata, if any.
     public var detectedProfile: CameraProfile?
@@ -63,24 +65,29 @@ public struct MediaInfo: Sendable, Equatable {
         let extensions = format.flatMap { CMFormatDescriptionGetExtensions($0) as? [String: Any] } ?? [:]
         let primaries = extensions[kCMFormatDescriptionExtension_ColorPrimaries as String] as? String
         let transfer = extensions[kCMFormatDescriptionExtension_TransferFunction as String] as? String
+        let log = extensions[kCMFormatDescriptionExtension_LogTransferFunction as String] as? String
 
         return MediaInfo(
             url: url, width: Int(abs(oriented.width)), height: Int(abs(oriented.height)),
             frameRate: rate > 0 ? Double(rate) : 30, duration: duration,
             codec: format.map { fourCC(CMFormatDescriptionGetMediaSubType($0)) } ?? "?",
-            colorPrimaries: primaries, transferFunction: transfer, hasAudio: hasAudio,
-            detectedProfile: detectProfile(transfer: transfer))
+            colorPrimaries: primaries, transferFunction: transfer, logTransferFunction: log, hasAudio: hasAudio,
+            detectedProfile: detectProfile(log: log, transfer: transfer))
     }
 
     /// Only claims a profile when the metadata is explicit; otherwise the user is asked.
-    static func detectProfile(transfer: String?) -> CameraProfile? {
+    static func detectProfile(log: String?, transfer: String?) -> CameraProfile? {
+        if log == kCMFormatDescriptionLogTransferFunction_AppleLog as String { return .appleLog }
         let transfer = transfer?.lowercased() ?? ""
-        if transfer.contains("applelog") || transfer.contains("apple_log") || transfer.contains("apple log") {
-            return .appleLog
-        }
         if transfer.contains("slog3") || transfer.contains("s-log3") { return .sLog3 }
         if transfer.contains("vlog") || transfer.contains("v-log") { return .vLog }
         return nil
+    }
+
+    /// Apple Log 2 (iPhone 17 Pro and later) uses a gamut Apple hasn't published, so it can't be decoded exactly.
+    public var isAppleLog2: Bool {
+        guard #available(macOS 26.0, *) else { return false }
+        return logTransferFunction == kCVImageBufferLogTransferFunction_AppleLog2 as String
     }
 }
 

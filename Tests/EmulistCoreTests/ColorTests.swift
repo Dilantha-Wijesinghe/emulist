@@ -96,3 +96,39 @@ import simd
         #expect(abs(simd_dot(balance, WorkingSpace.luminance)) < 1e-12)
     }
 }
+
+@Suite struct ProjectTests {
+    @Test func projectRoundTrips() throws {
+        var settings = GradeSettings()
+        settings.select(FilmStock.builtIn[2])
+        settings.exposure = 0.7
+        settings.halation.amount = 12
+        let media = MediaReference(MediaInfo(
+            url: URL(fileURLWithPath: "/tmp/clip.mov"), width: 3840, height: 2160, frameRate: 24, duration: 10,
+            codec: "apch", colorPrimaries: nil, transferFunction: nil, logTransferFunction: nil, hasAudio: true,
+            detectedProfile: .appleLog))
+        let project = EmulistProject(media: media, settings: settings, export: ExportSettings(codec: .h264))
+        let decoded = try EmulistProject.decode(project.encoded())
+        #expect(decoded.settings == settings)
+        #expect(decoded.export == project.export)
+        #expect(decoded.media.width == 3840)
+    }
+
+    @Test func effectSizesScaleWithResolution() {
+        let settings = GradeSettings()
+        let hd = EffectParameters(settings, height: 1080)
+        let uhd = EffectParameters(settings, height: 2160)
+        #expect(abs(uhd.halationSigma - 2 * hd.halationSigma) < 1e-9)
+        #expect(abs(uhd.bloomSigma - 2 * hd.bloomSigma) < 1e-9)
+        #expect(abs(uhd.grainSigma - 2 * hd.grainSigma) < 1e-9)
+        // Below the 1080-line reference the grain canvas stays put and is filtered down instead.
+        #expect(EffectParameters(settings, height: 540).grainCanvasHeight == 1080)
+    }
+
+    @Test func stockSelectionLoadsRecommendedEffects() {
+        var settings = GradeSettings()
+        let stock = FilmStock.builtIn[1]
+        settings.select(stock)
+        #expect(settings.grain == stock.grain && settings.halation == stock.halation)
+    }
+}

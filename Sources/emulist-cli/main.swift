@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreGraphics
 import EmulistCore
 import Foundation
@@ -12,6 +13,7 @@ import simd
 //   emulist-cli render <clip> <out.png> [options]     Render one frame
 //   emulist-cli sheet <clip> <out.png> [options]      Before + every stock, as a contact sheet
 //   emulist-cli export <clip> <out.mov> [options]     Export the graded clip
+//   emulist-cli tag-apple-log <clip> <out.mov>        Remux, declaring Apple Log the way an iPhone does
 //
 // Options: --time <seconds> --stock <id> --intensity <0-100> --scale <0-1> --split <0-1>
 //          --settings <grade.json> --codec <prores|hevc|h264> --clean 1 (no grain/halation/bloom)
@@ -143,6 +145,54 @@ func chartScene(width: Int, height: Int) -> (Int, Int) -> RGB {
     }
 }
 
+// MARK: Metadata
+
+/// Copies a clip's video samples untouched into a new file whose format description declares Apple Log.
+func tagAppleLog(_ source: URL, to destination: URL) async throws {
+    let asset = AVURLAsset(url: source)
+    guard let track = try await asset.loadTracks(withMediaType: .video).first,
+          let format = try await track.load(.formatDescriptions).first else { throw CLIError.usage("No video") }
+    var extensions = (CMFormatDescriptionGetExtensions(format) as? [String: Any]) ?? [:]
+    extensions[kCMFormatDescriptionExtension_LogTransferFunction as String] = kCMFormatDescriptionLogTransferFunction_AppleLog
+    extensions[kCMFormatDescriptionExtension_ColorPrimaries as String] = kCMFormatDescriptionColorPrimaries_ITU_R_2020
+    extensions[kCMFormatDescriptionExtension_YCbCrMatrix as String] = kCMFormatDescriptionYCbCrMatrix_ITU_R_2020
+    // Otherwise the writer copies the original sample description byte for byte.
+    extensions[kCMFormatDescriptionExtension_VerbatimSampleDescription as String] = nil
+    let dimensions = CMVideoFormatDescriptionGetDimensions(format)
+    var tagged: CMFormatDescription?
+    CMVideoFormatDescriptionCreate(
+        allocator: nil, codecType: CMFormatDescriptionGetMediaSubType(format), width: dimensions.width,
+        height: dimensions.height, extensions: extensions as CFDictionary, formatDescriptionOut: &tagged)
+
+    let reader = try AVAssetReader(asset: asset)
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+    reader.add(output)
+    try? FileManager.default.removeItem(at: destination)
+    let writer = try AVAssetWriter(outputURL: destination, fileType: .mov)
+    let input = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: tagged)
+    writer.add(input)
+    reader.startReading()
+    writer.startWriting()
+    writer.startSession(atSourceTime: .zero)
+    while let sample = output.copyNextSampleBuffer() {
+        guard let tagged, let data = CMSampleBufferGetDataBuffer(sample) else { continue }
+        var timing = [CMSampleTimingInfo](repeating: .init(), count: CMSampleBufferGetNumSamples(sample))
+        var sizes = [Int](repeating: 0, count: timing.count)
+        CMSampleBufferGetSampleTimingInfoArray(sample, entryCount: timing.count, arrayToFill: &timing, entriesNeededOut: nil)
+        CMSampleBufferGetSampleSizeArray(sample, entryCount: sizes.count, arrayToFill: &sizes, entriesNeededOut: nil)
+        var retagged: CMSampleBuffer?
+        CMSampleBufferCreateReady(
+            allocator: nil, dataBuffer: data, formatDescription: tagged, sampleCount: timing.count,
+            sampleTimingEntryCount: timing.count, sampleTimingArray: &timing, sampleSizeEntryCount: sizes.count,
+            sampleSizeArray: &sizes, sampleBufferOut: &retagged)
+        while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
+        if let retagged { input.append(retagged) }
+    }
+    input.markAsFinished()
+    await writer.finishWriting()
+    if let error = writer.error { throw error }
+}
+
 // MARK: Rendering
 
 func renderFrame(_ url: URL, at time: Double, settings: [GradeSettings], scale: Double, split: Double) async throws -> [CGImage] {
@@ -228,6 +278,11 @@ do {
             FileHandle.standardError.write(Data("\rexporting \(Int(progress * 100))%".utf8))
         }
         print(String(format: "\ndone in %.1fs", Date().timeIntervalSince(start)))
+    case "tag-apple-log":
+        guard paths.count == 2 else { throw CLIError.usage("tag-apple-log <clip> <out.mov>") }
+        try await tagAppleLog(paths[0], to: paths[1])
+        let info = try await MediaInfo.inspect(paths[1])
+        print("detected profile: \(info.detectedProfile?.name ?? "none")")
     default:
         throw CLIError.usage("Unknown command \(command)")
     }

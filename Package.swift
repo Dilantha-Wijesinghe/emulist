@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "Emulist",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS("14.2")],
     products: [
         .executable(name: "Emulist", targets: ["Emulist"]),
         .executable(name: "emulist-cli", targets: ["emulist-cli"]),
