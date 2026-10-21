@@ -28,11 +28,17 @@ public struct CameraProfile: Identifiable, Hashable, Sendable {
     public static let vLog = CameraProfile(
         id: "panasonic-vlog", name: "Panasonic V-Log / V-Gamut", transfer: .vLog, primaries: .vGamut,
         defaultMatrix: .rec709)
+    public static let fLog = CameraProfile(
+        id: "fujifilm-flog", name: "Fujifilm F-Log / F-Gamut", transfer: .fLog, primaries: .fGamut,
+        defaultMatrix: .rec709)
+    public static let fLog2 = CameraProfile(
+        id: "fujifilm-flog2", name: "Fujifilm F-Log2 / F-Gamut", transfer: .fLog2, primaries: .fGamut,
+        defaultMatrix: .rec709)
     public static let rec709 = CameraProfile(
         id: "rec709", name: "Rec.709 (Standard Video)", transfer: .gamma24, primaries: .rec709,
         defaultMatrix: .rec709)
 
-    public static let all: [CameraProfile] = [.appleLog, .sLog3, .vLog, .rec709]
+    public static let all: [CameraProfile] = [.appleLog, .sLog3, .vLog, .fLog, .fLog2, .rec709]
 
     public static func with(id: String) -> CameraProfile? { all.first { $0.id == id } }
 }

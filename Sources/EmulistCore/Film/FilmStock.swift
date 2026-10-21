@@ -1,18 +1,38 @@
 import Foundation
 
-/// A film look: the tonal and color response of a negative printed to a positive, plus recommended
-/// texture and light settings. Stocks are pure data (Codable), so new looks need no code changes.
+/// A look: either Emulist's negative + print model (`response`) or an external 3D LUT (`lut`), plus
+/// recommended texture and light settings. Looks are pure data, so new ones need no code changes.
 public struct FilmStock: Codable, Identifiable, Hashable, Sendable {
     public var id: String
     public var name: String
     public var format: String
     public var summary: String
+    /// Library grouping, e.g. "Emulist Film" or "Fujifilm".
+    public var collection = FilmStock.emulistCollection
     public var response: FilmResponse
+    /// When set, the look is this LUT instead of `response`.
+    public var lut: LUTSource? = nil
     public var grain: GrainSettings
     public var halation: HalationSettings
     public var bloom: BloomSettings
 
-    public static func with(id: String) -> FilmStock? { builtIn.first { $0.id == id } }
+    public static let emulistCollection = "Emulist Film"
+
+    public static func with(id: String) -> FilmStock? { LookLibrary.shared.stock(id: id) }
+}
+
+/// An external `.cube` LUT and the camera encoding it expects as input. Its output is taken to be
+/// Rec.709 video for a gamma 2.4 display, the convention for camera and creative LUTs.
+public struct LUTSource: Codable, Hashable, Sendable {
+    public var url: URL
+    public var inputProfileID: String
+
+    public init(url: URL, inputProfileID: String) {
+        self.url = url
+        self.inputProfileID = inputProfileID
+    }
+
+    public var inputProfile: CameraProfile { CameraProfile.with(id: inputProfileID) ?? .appleLog }
 }
 
 /// The numeric model of a negative + print. Every field interpolates linearly, which is how film
@@ -79,34 +99,8 @@ public struct FilmResponse: Codable, Hashable, Sendable {
 }
 
 extension FilmResponse {
-    /// The response for a grade: the stock blended by intensity, then the user's film controls.
+    /// The response for a grade: the stock blended toward neutral by intensity.
     public init(for settings: GradeSettings) {
         self = FilmResponse.neutral.mixed(with: settings.stock.response, amount: settings.intensity / 100)
-        apply(settings)
-    }
-
-    private mutating func apply(_ s: GradeSettings) {
-        // Push/pull: a pushed negative is also developed longer, which adds contrast and color.
-        exposure += s.push
-        contrast *= 1 + 0.06 * s.push
-        separation *= 1 + 0.04 * s.push
-
-        contrast *= pow(2, s.contrast / 100 * 0.6)
-        separation *= s.saturation / 100
-        printSaturation *= 0.5 + 0.5 * min(s.saturation / 100, 1.5)
-
-        // Highlights: positive values compress earlier and softer (more "negative-like" latitude).
-        shoulderStart -= s.highlights / 100 * 1.5
-        rolloff *= pow(2, -s.highlights / 100 * 0.7)
-
-        // Fade lifts the print black and opens the toe like a matte print.
-        let fade = s.fade / 100
-        black += RGB(repeating: fade * 0.06)
-        toe *= 1 - 0.35 * fade
-
-        // Printer lights: complementary pairs, compensated so overall exposure is preserved.
-        var lights = RGB(s.cyanRed, s.magentaGreen, s.yellowBlue) / 100 * 0.5
-        lights -= RGB(repeating: (lights * WorkingSpace.luminance).sum())
-        balance += lights
     }
 }

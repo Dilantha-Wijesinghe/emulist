@@ -171,3 +171,136 @@ import simd
         #expect(CGAffineTransform.identity.uprightToStored(bufferSize: stored).isIdentity)
     }
 }
+
+@Suite struct FujifilmTests {
+    @Test func fLog2MidGreyMatchesSpecification() {
+        // colour-science reference: log_encoding_FLog2(0.18) = 0.3910072.
+        #expect(abs(TransferFunction.fLog2.encode(0.18) - 0.3910072) < 1e-6)
+        #expect(abs(TransferFunction.fLog.encode(0.18) - 0.4593) < 1e-3)
+    }
+
+    @Test func recognizesFujifilmFileNames() {
+        #expect(FujifilmLooks.simulation(forFileName: "FLog2_to_CLASSIC-CHROME_65grid_V.1.00")?.name == "Classic Chrome")
+        #expect(FujifilmLooks.simulation(forFileName: "FLog2_to_ETERNA-BB_65grid_V.1.00")?.name == "Eterna Bleach Bypass")
+        #expect(FujifilmLooks.simulation(forFileName: "FLog2_to_ETERNA_65grid_V.1.00")?.name == "Eterna")
+        #expect(FujifilmLooks.simulation(forFileName: "FLog2_to_WDR-709_65grid_V.1.00") == nil)
+    }
+
+    @Test func infersLUTInputFromName() {
+        #expect(LookLibrary.inputProfile(forName: "FLog2_to_PROVIA") == .fLog2)
+        #expect(LookLibrary.inputProfile(forName: "XH2S_FLog_FGamut_to_ETERNA") == .fLog)
+        #expect(LookLibrary.inputProfile(forName: "FLog2C_to_PROVIA") == nil)
+        #expect(LookLibrary.inputProfile(forName: "My Apple Log Look") == .appleLog)
+    }
+}
+
+@Suite struct CubeLUTTests {
+    private func identityCube(size: Int) -> String {
+        var text = "TITLE \"identity\"\nLUT_3D_SIZE \(size)\n"
+        for b in 0..<size { for g in 0..<size { for r in 0..<size {
+            let n = Double(size - 1)
+            text += "\(Double(r) / n) \(Double(g) / n) \(Double(b) / n)\n"
+        } } }
+        return text
+    }
+
+    @Test func parsesAndInterpolatesIdentityExactly() throws {
+        let cube = try CubeLUT(data: Data(identityCube(size: 5).utf8))
+        #expect(cube.size == 5 && cube.title == "identity")
+        for input in [RGB(0.1, 0.7, 0.33), RGB(0.9, 0.2, 0.55), RGB(0.5, 0.5, 0.5), RGB(0, 1, 0.25)] {
+            #expect(simd_distance(cube.sample(input), input) < 1e-6)
+        }
+    }
+
+    @Test func rejectsWrongEntryCount() {
+        #expect(throws: CubeLUT.ParseError.self) { try CubeLUT(data: Data("LUT_3D_SIZE 3\n0 0 0\n".utf8)) }
+    }
+}
+
+@Suite struct PrimaryGradeTests {
+    @Test func defaultsAreIdentity() {
+        let grade = PrimaryGrade(GradeSettings())
+        #expect(grade.isIdentity)
+        let e = RGB(-2.3, 0.4, 1.7)
+        #expect(simd_distance(grade.apply(e), e) < 1e-12)
+    }
+
+    @Test func wheelRGBRoundTripsAndIsLumaNeutral() {
+        let wheel = ColorWheel(x: 0.4, y: -0.3, master: 0.05)
+        let rgb = wheel.rgb(.gamma)
+        #expect(abs(simd_dot(rgb, ColorWheel.lumaWeights) - 0.05) < 1e-12)
+        let back = ColorWheel(rgb: rgb, kind: .gamma)
+        #expect(abs(back.x - 0.4) < 1e-12 && abs(back.y + 0.3) < 1e-12 && abs(back.master - 0.05) < 1e-12)
+    }
+
+    @Test func pushingTowardRedWarmsTheImage() {
+        var settings = GradeSettings()
+        settings.gain = ColorWheel(x: 0, y: 0.5) // +Cr = red on a vectorscope
+        let out = PrimaryGrade(settings).apply(RGB(repeating: 1))
+        #expect(out.x > 1 && out.z < out.x)
+    }
+
+    @Test func densityDeepensColorButLeavesNeutralsAlone() {
+        var settings = GradeSettings()
+        settings.density = 100
+        let grade = PrimaryGrade(settings)
+        #expect(simd_distance(grade.apply(RGB(repeating: 0.5)), RGB(repeating: 0.5)) < 1e-12)
+        let red = RGB(1, -0.5, -0.8)
+        let out = grade.apply(red)
+        #expect(out.x < red.x && out.y < red.y - 0.5 && out.z < red.z - 0.5)
+        #expect(out.max() - out.min() > red.max() - red.min())
+    }
+
+    @Test func colorBoostFavorsMutedColors() {
+        var settings = GradeSettings()
+        settings.colorBoost = 100
+        let grade = PrimaryGrade(settings)
+        func gain(_ e: RGB) -> Double { (grade.apply(e).max() - grade.apply(e).min()) / (e.max() - e.min()) }
+        #expect(gain(RGB(0.1, 0, -0.1)) > gain(RGB(1.5, 0, -1.5)))
+    }
+
+    @Test func legacyProjectsDecodeWithDefaults() throws {
+        let legacy = #"{"cameraProfileID":"apple-log","exposure":0.5,"stockID":"nocturne-800","intensity":80}"#
+        let settings = try JSONDecoder().decode(GradeSettings.self, from: Data(legacy.utf8))
+        #expect(settings.exposure == 0.5 && settings.intensity == 80 && settings.stockID == "nocturne-800")
+        #expect(settings.lift.isNeutral && settings.saturation == 100 && settings.grain == GrainSettings())
+    }
+}
+
+@Suite struct DragMathTests {
+    @Test func dragIsRelativeAndClamped() {
+        let v = DragMath.value(from: 10, travel: 50, range: 0...100, pointsPerRange: 100)
+        #expect(v == 60)
+        #expect(DragMath.value(from: 90, travel: 500, range: 0...100, pointsPerRange: 100) == 100)
+        #expect(DragMath.value(from: 10, travel: 50, range: 0...100, pointsPerRange: 100, fine: true) == 15)
+    }
+
+    @Test func defaultIsAStickyDetentWithoutJumps() {
+        // From the detent, small travel stays put…
+        #expect(DragMath.value(from: 0, travel: 2, range: -100...100, pointsPerRange: 200, detent: 0, detentWidth: 0.015) == 0)
+        // …and leaving it is continuous: just past the dead zone the value is just past zero.
+        let past = DragMath.value(from: 0, travel: 3.1, range: -100...100, pointsPerRange: 200, detent: 0, detentWidth: 0.015)
+        #expect(past > 0 && past < 0.2)
+        // Starting away from the detent, the first movement is never a jump.
+        let nudge = DragMath.value(from: 40, travel: 1, range: -100...100, pointsPerRange: 200, detent: 0)
+        #expect(abs(nudge - 41) < 1e-9)
+        // Crossing it parks there.
+        #expect(DragMath.value(from: 2, travel: -4, range: -100...100, pointsPerRange: 200, detent: 0) == 0)
+    }
+
+    @Test func detentCrossingIsReported() {
+        #expect(DragMath.reached(0, from: 5, to: -5))
+        #expect(DragMath.reached(0, from: 5, to: 0))
+        #expect(!DragMath.reached(0, from: 0, to: 3))
+        #expect(!DragMath.reached(0, from: 5, to: 3))
+    }
+
+    @Test func puckStaysInDiskAndCenters() {
+        let far = DragMath.puck(from: .zero, delta: SIMD2(5, 0))
+        #expect(abs(simd_length(far) - 1) < 1e-9)
+        #expect(DragMath.puck(from: SIMD2(0.2, 0), delta: SIMD2(-0.21, 0)) == .zero)
+        // Away from the center the puck tracks the pointer (the radial detent couples axes only slightly).
+        let moved = DragMath.puck(from: SIMD2(0.5, 0.2), delta: SIMD2(0.01, 0))
+        #expect(abs(moved.x - 0.51) < 1e-3 && abs(moved.y - 0.2) < 1e-3)
+    }
+}

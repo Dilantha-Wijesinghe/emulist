@@ -15,9 +15,12 @@ import simd
 //   emulist-cli export <clip> <out.mov> [options]     Export the graded clip
 //   emulist-cli tag-apple-log <clip> <out.mov>        Remux, declaring Apple Log the way an iPhone does
 //   emulist-cli verify-decode <clip>                  Viewer (player) and export (reader) decodes must be identical
+//   emulist-cli install-fujifilm [folder]             Install Fujifilm's film simulation LUTs (download, or from an unzipped folder)
+//   emulist-cli looks                                 List every look in the library
 //
-// Options: --time <seconds> --stock <id> --intensity <0-100> --scale <0-1> --split <0-1>
-//          --settings <grade.json> --codec <prores|hevc|h264> --clean 1 (no grain/halation/bloom)
+// Options: --time <seconds> --stock <id> --scale <0-1> --split <0-1> --settings <grade.json>
+//          --codec <prores|hevc|h264> --clean 1 (no grain/halation/bloom) --collection <name> (sheet)
+//          Any other --<setting> <number> overrides that grade setting, e.g. --colorBoost 40 --lift.x 0.3
 
 struct Arguments {
     var positional: [String] = []
@@ -37,14 +40,42 @@ struct Arguments {
         if let path = options["settings"] {
             settings = try JSONDecoder().decode(GradeSettings.self, from: Data(contentsOf: URL(fileURLWithPath: path)))
         }
-        if let id = options["stock"], let stock = FilmStock.with(id: id) { settings.select(stock) }
-        if let intensity = double("intensity") { settings.intensity = intensity }
+        if let id = options["stock"] {
+            guard let stock = FilmStock.with(id: id) else { throw CLIError.usage("Unknown look \(id)") }
+            settings.select(stock)
+        }
+        settings = try overriding(settings)
         if options["clean"] != nil {
             settings.grain.enabled = false
             settings.halation.enabled = false
             settings.bloom.enabled = false
         }
         return settings
+    }
+
+    static let reserved: Set = ["settings", "stock", "time", "scale", "split", "codec", "clean", "collection", "columns"]
+
+    /// Applies numeric `--key value` options to the settings' JSON (dotted keys reach nested values).
+    func overriding(_ settings: GradeSettings) throws -> GradeSettings {
+        let overrides = options.filter { !Self.reserved.contains($0.key) }
+        guard !overrides.isEmpty else { return settings }
+        var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
+        func set(_ path: ArraySlice<Substring>, _ value: Double, in dict: inout [String: Any]) throws {
+            let key = String(path.first!)
+            if path.count == 1 {
+                guard dict[key] is NSNumber else { throw CLIError.usage("Unknown setting \(key)") }
+                dict[key] = value
+            } else {
+                guard var nested = dict[key] as? [String: Any] else { throw CLIError.usage("Unknown setting \(key)") }
+                try set(path.dropFirst(), value, in: &nested)
+                dict[key] = nested
+            }
+        }
+        for (key, raw) in overrides {
+            guard let value = Double(raw) else { throw CLIError.usage("--\(key) needs a number") }
+            try set(key.split(separator: ".")[...], value, in: &json)
+        }
+        return try JSONDecoder().decode(GradeSettings.self, from: JSONSerialization.data(withJSONObject: json))
     }
 }
 
@@ -300,7 +331,8 @@ do {
         looks[0].grain.enabled = false
         looks[0].halation.enabled = false
         looks[0].bloom.enabled = false
-        for stock in FilmStock.builtIn {
+        let library = LookLibrary.shared.all.filter { args.options["collection"].map($0.collection.hasPrefix) ?? true }
+        for stock in library {
             var settings = base
             settings.select(stock)
             looks.append(settings)
@@ -322,13 +354,14 @@ do {
     case "bench":
         guard paths.count == 1 else { throw CLIError.usage("bench <clip>") }
         let settings = try args.settings()
+        _ = try ColorPipeline(settings).makeRenderer() // load the look's LUT outside the timing
         var start = Date()
         for i in 0..<10 {
             var s = settings
             s.contrast = Double(i)
-            _ = LUTBaker.filmLUT(FilmModel(response: FilmResponse(for: s), output: s.output))
+            _ = LUTBaker.filmLUT(try ColorPipeline(s).makeRenderer())
         }
-        print(String(format: "film LUT bake: %.1f ms", Date().timeIntervalSince(start) * 100))
+        print(String(format: "look LUT bake: %.1f ms", Date().timeIntervalSince(start) * 100))
         let info = try await MediaInfo.inspect(paths[0])
         let reader = try await FrameReader(info: info)
         guard let frame = try reader.next() else { throw CLIError.usage("empty clip") }
@@ -358,6 +391,18 @@ do {
         let difference = maxDifference(viewerFrame, exportFrame.pixelBuffer)
         print("viewer vs export decode: max difference \(difference) code values (10-bit)")
         if difference > 0 { exit(2) }
+    case "install-fujifilm":
+        if let folder = paths.first {
+            try FujifilmLooks.installLUTs(from: folder)
+            LookLibrary.shared.reload()
+        } else {
+            print("downloading \(FujifilmLooks.packageURL.absoluteString) (\(FujifilmLooks.packageSize))…")
+            try await FujifilmLooks.install()
+        }
+        print("installed into \(LookLibrary.directory.path)")
+        fallthrough
+    case "looks":
+        for look in LookLibrary.shared.all { print("\(look.collection) · \(look.name)  [\(look.id)]") }
     case "tag-apple-log":
         guard paths.count == 2 else { throw CLIError.usage("tag-apple-log <clip> <out.mov>") }
         try await tagAppleLog(paths[0], to: paths[1])

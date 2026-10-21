@@ -6,6 +6,8 @@ public enum TransferFunction: String, Codable, CaseIterable, Sendable {
     case appleLog
     case sLog3
     case vLog
+    case fLog
+    case fLog2
     /// Display-referred Rec.709 video, interpreted through the BT.1886 (gamma 2.4) EOTF.
     case gamma24
     /// The effective gamma Apple's video pipeline (AVFoundation, QuickTime, Photos, Safari) applies to
@@ -20,6 +22,8 @@ public enum TransferFunction: String, Codable, CaseIterable, Sendable {
         case .appleLog: AppleLog.decode(v)
         case .sLog3: SLog3.decode(v)
         case .vLog: VLog.decode(v)
+        case .fLog: FujiLog.fLog.decode(v)
+        case .fLog2: FujiLog.fLog2.decode(v)
         case .gamma24: pow(max(v, 0), 2.4)
         case .gamma1961: pow(max(v, 0), 1.961)
         case .bt709: v < 4.5 * 0.018 ? v / 4.5 : pow((v + 0.099) / 1.099, 1 / 0.45)
@@ -32,6 +36,8 @@ public enum TransferFunction: String, Codable, CaseIterable, Sendable {
         case .appleLog: AppleLog.encode(l)
         case .sLog3: SLog3.encode(l)
         case .vLog: VLog.encode(l)
+        case .fLog: FujiLog.fLog.encode(l)
+        case .fLog2: FujiLog.fLog2.encode(l)
         case .gamma24: pow(max(l, 0), 1 / 2.4)
         case .gamma1961: pow(max(l, 0), 1 / 1.961)
         case .bt709: l < 0.018 ? 4.5 * l : 1.099 * pow(l, 0.45) - 0.099
@@ -90,6 +96,24 @@ enum VLog {
 
     static func encode(_ l: Double) -> Double {
         l < 0.01 ? 5.6 * l + 0.125 : c * log10(l + b) + d
+    }
+}
+
+/// Fujifilm F-Log and F-Log2 (Fujifilm "F-Log Data Sheet" and "F-Log2 Data Sheet"; constants as in colour-science).
+struct FujiLog {
+    let a, b, c, d, e, f, cut1: Double
+
+    static let fLog = FujiLog(a: 0.555556, b: 0.009468, c: 0.344676, d: 0.790453, e: 8.735631, f: 0.092864, cut1: 0.00089)
+    static let fLog2 = FujiLog(a: 5.555556, b: 0.064829, c: 0.245281, d: 0.384316, e: 8.799461, f: 0.092864, cut1: 0.000889)
+
+    private var cut2: Double { e * cut1 + f }
+
+    func encode(_ l: Double) -> Double {
+        l >= cut1 ? c * log10(a * l + b) + d : e * l + f
+    }
+
+    func decode(_ v: Double) -> Double {
+        v >= cut2 ? (pow(10, (v - d) / c) - b) / a : (v - f) / e
     }
 }
 

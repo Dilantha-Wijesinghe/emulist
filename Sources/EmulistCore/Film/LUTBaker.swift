@@ -7,7 +7,7 @@ public enum LUTBaker {
     public static let transferLUTSize = 4096
 
     /// 3D LUT over the log shaper (see `WorkingSpace`), RGBA half floats, red varying fastest.
-    public static func filmLUT(_ model: FilmModel, size: Int = filmLUTSize) -> [Float16] {
+    public static func filmLUT(_ pipeline: ColorPipeline.Renderer, size: Int = filmLUTSize) -> [Float16] {
         var data = [Float16](repeating: 1, count: size * size * size * 4)
         let scale = 1 / Double(size - 1)
         let linear = (0..<size).map { i in
@@ -18,7 +18,7 @@ public enum LUTBaker {
             DispatchQueue.concurrentPerform(iterations: size) { b in
                 for g in 0..<size {
                     for r in 0..<size {
-                        let value = model.render(RGB(linear[r], linear[g], linear[b]))
+                        let value = pipeline.render(RGB(linear[r], linear[g], linear[b]))
                         let index = ((b * size + g) * size + r) * 4
                         out[index] = Float16(value.x)
                         out[index + 1] = Float16(value.y)

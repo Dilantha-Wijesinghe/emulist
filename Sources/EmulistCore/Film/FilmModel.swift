@@ -9,7 +9,7 @@ import simd
 /// 3. Negative shoulder: highlights compress asymptotically per channel, so they desaturate gracefully.
 /// 4. Printing light balance (stock balance + color head).
 /// 5. Print curve per channel: toe, mid-grey contrast, soft roll-off into paper white, black floor.
-/// 6. Print saturation, gamut conversion to the output primaries, soft gamut compression, encoding.
+/// 6. Print saturation, gamut conversion to the output primaries, soft gamut compression.
 public struct FilmModel: Sendable {
     public let response: FilmResponse
     public let output: OutputTransform
@@ -31,15 +31,18 @@ public struct FilmModel: Sendable {
 
     /// Scene-linear working RGB -> display-encoded output RGB in 0...1.
     public func render(_ scene: RGB) -> RGB {
+        displayLinear(stops: WorkingSpace.stops(scene)).encoded(output.transfer)
+    }
+
+    /// Log exposure (stops relative to mid grey) -> display-linear output RGB in 0...1, gamut mapped.
+    public func displayLinear(stops: RGB) -> RGB {
         let r = response
-        let floor = WorkingSpace.midGrey * pow(2, WorkingSpace.shaperRange.lowerBound)
-        let e = RGB(
-            log2(max(scene.x, floor) / WorkingSpace.midGrey),
-            log2(max(scene.y, floor) / WorkingSpace.midGrey),
-            log2(max(scene.z, floor) / WorkingSpace.midGrey)) + RGB(repeating: r.exposure)
-        let mixed = crosstalk * e
+        let mixed = crosstalk * (stops + RGB(repeating: r.exposure))
         let mean = RGB(repeating: simd_dot(mixed, WorkingSpace.luminance))
-        return render(stops: mean + (mixed - mean) * r.separation)
+        var y = printDensity(stops: mean + (mixed - mean) * r.separation)
+        let luma = simd_dot(y, WorkingSpace.luminance)
+        y = RGB(repeating: luma) + (y - RGB(repeating: luma)) * r.printSaturation
+        return simd_clamp(GamutCompression.compress(toOutput * y), .zero, RGB(repeating: 1))
     }
 
     /// Display-linear output of the print, before gamut mapping and encoding (useful for tests and plots).
@@ -48,15 +51,6 @@ public struct FilmModel: Sendable {
         let negative = RGB(shoulder(e.x), shoulder(e.y), shoulder(e.z)) + r.balance
         return RGB(
             print(negative.x, channel: 0), print(negative.y, channel: 1), print(negative.z, channel: 2))
-    }
-
-    private func render(stops e: RGB) -> RGB {
-        var y = printDensity(stops: e)
-        let luma = simd_dot(y, WorkingSpace.luminance)
-        y = RGB(repeating: luma) + (y - RGB(repeating: luma)) * response.printSaturation
-        let display = GamutCompression.compress(toOutput * y)
-        let clamped = simd_clamp(display, .zero, RGB(repeating: 1))
-        return RGB(output.transfer.encode(clamped.x), output.transfer.encode(clamped.y), output.transfer.encode(clamped.z))
     }
 
     // MARK: Negative

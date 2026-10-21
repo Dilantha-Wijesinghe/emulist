@@ -9,20 +9,24 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let media = workspace.media {
-                HStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        ZStack {
-                            Theme.viewer
-                            ViewerView(workspace: workspace)
-                            CompareOverlay(workspace: workspace, contentSize: CGSize(width: media.width, height: media.height))
+                // The color page: looks | viewer above, grading palettes below.
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        LookLibraryView(workspace: workspace)
+                        separator.frame(width: 1)
+                        VStack(spacing: 0) {
+                            ZStack {
+                                Theme.viewer
+                                ViewerView(workspace: workspace)
+                                CompareOverlay(workspace: workspace, contentSize: CGSize(width: media.width, height: media.height))
+                            }
+                            separator.frame(height: 1)
+                            TransportBar(workspace: workspace)
                         }
-                        Divider().overlay(Theme.separator)
-                        TransportBar(workspace: workspace)
-                        Divider().overlay(Theme.separator)
-                        StockStrip(workspace: workspace)
                     }
-                    Divider().overlay(Theme.separator)
-                    InspectorView(workspace: workspace)
+                    separator.frame(height: 1)
+                    GradingPanel(workspace: workspace)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
                 EmptyStateView(workspace: workspace, isTargeted: isDropTargeted)
@@ -39,6 +43,8 @@ struct ContentView: View {
             Alert(title: Text(alert.title), message: Text(alert.message))
         }
     }
+
+    private var separator: some View { Rectangle().fill(Theme.separator) }
 
     private var subtitle: String {
         guard let media = workspace.media else { return "" }

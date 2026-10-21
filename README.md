@@ -18,17 +18,30 @@ Requires macOS 14.2+ on Apple Silicon.
 
 ## Using it
 
+The window is laid out like Resolve's color page: looks on the left, the viewer in the middle, grading palettes
+along the bottom.
+
 1. **Drop footage** onto the window (or ⌘O). Apple Log is detected from the clip's metadata. If the file doesn't
    declare its LOG curve, Emulist asks which profile it was shot in.
-2. **Pick a film** from the strip under the viewer. Every thumbnail is your current frame, rendered live.
-3. **Refine** in the inspector:
-   - Input: exposure and white balance, applied as light, before the film.
-   - Film: intensity, push/pull, contrast, saturation, highlight roll-off and fade.
-   - Printer lights, grain & texture, halation and bloom.
-   Drag a slider to adjust it (hold ⌥ for fine control). Double-click it to reset.
-4. **Compare** with the toolbar control: graded, split wipe (drag the handle), or before. `B` toggles before.
-5. **Export** (⌘E): ProRes 422 HQ, HEVC 10-bit or H.264, with audio.
-6. **Save** the grade as an `.emulist` project (⌘S). Saved projects autosave, and the footage is never modified.
+2. **Pick a look** in the library. Every thumbnail is your current frame, rendered live. Emulist's own film stocks
+   are there from the start; *Download from Fujifilm* adds Fujifilm's official film simulations (see below).
+3. **Grade with the primaries** (bottom left), which work *under* the look like grading under a LUT in Resolve,
+   so the film's curve keeps every correction graceful:
+   - **Lift, Gamma, Gain, Offset wheels.** Drag anywhere on a wheel to move its puck toward a hue (relative and
+     slow for precision; ⌥ finer, ⇧ faster). The ribbed thumbwheel underneath is the master level. Type exact
+     R G B values in the readouts.
+   - **Contrast & Pivot, Saturation, Color Boost** (lifts muted colors, spares already-vivid ones), **Density**
+     (subtractive saturation: colors get deeper and richer, like denser dye; neutrals untouched), **Shadows**,
+     **Highlights**, plus **Exposure, Temp, Tint** (applied as light, before everything).
+4. **Shape the film** in the rack (bottom right): intensity, push/pull and fade; printer lights; grain, halation
+   and bloom, each with its own power switch.
+5. **Compare** with the toolbar control: graded, split wipe (drag the handle), or before. `B` toggles before.
+6. **Export** (⌘E): ProRes 422 HQ, HEVC 10-bit or H.264, with audio.
+7. **Save** the grade as an `.emulist` project (⌘S). Saved projects autosave, and the footage is never modified.
+
+**Every control works the same way.** Drag it (or scroll over it on a trackpad); hold ⌥ for fine control. It
+clicks into its default with a haptic detent on Force Touch trackpads. Double-click to reset, or click the value
+to type one. Each drag or scroll burst is one undo step.
 
 | Shortcut | Action |
 |---|---|
@@ -62,6 +75,25 @@ Both options show the same image in the viewer. They differ in which players rep
 These are original creative interpretations, not measurements of commercial stocks. A stock is plain data
 (`FilmStock` is `Codable`), so adding one is a new entry in `BuiltInStocks.swift`. No UI code changes.
 
+### Fujifilm film simulations
+
+*Download from Fujifilm* in the library (or `emulist-cli install-fujifilm`) fetches Fujifilm's free official
+LUT package (GFX ETERNA 55, 46 MB) from fujifilm-x.com. It installs the ten F-Log2 film simulations: Provia,
+Velvia, Astia, Classic Chrome, Reala Ace, Pro Neg. Std, Classic Neg., Eterna, Eterna Bleach Bypass and Acros.
+They land in `~/Library/Application Support/Emulist/Looks/Fujifilm` and are never bundled with Emulist.
+
+Your footage reaches them through a colorimetric bridge: camera LOG → scene-linear Rec.2020 (= F-Gamut) → F-Log2.
+Each simulation then renders exactly as Fujifilm designed it, with the primaries, grain, halation and bloom
+still applied around it. Intensity blends the simulation with Emulist's neutral print. Extreme saturation on
+an already-vivid look (e.g. Velvia at 200%) can still clip inside Fujifilm's LUT.
+
+### Your own LUTs
+
+Import any 3D `.cube` LUT with **+** in the library, or drop it on the window. Emulist reads the LUT's expected
+input from its name: `F-Log2`, `F-Log`, `S-Log3` or `V-Log`, and otherwise Apple Log. It treats the LUT's output
+as Rec.709 for a gamma 2.4 display, which is the convention for camera and creative LUTs. Imported LUTs live in
+`…/Emulist/Looks/Imported`.
+
 ## How the image is made
 
 ```
@@ -71,7 +103,10 @@ decode (10-bit Y'CbCr, no OS color conversion)
   → softness ("film resolution")
   → bloom + halation, added as light in scene-linear (half resolution, MPS Gaussian)
   → grain, as noise in log exposure (density), deterministic per frame
-  → film LUT (65³, baked in Swift): negative → printer lights → print → gamut map → encode
+  → look LUT (65³, baked in Swift):
+      primary grade (log: wheels, contrast, color, printer lights)
+      → film (negative → print → gamut map)  or  external LUT (via its camera encoding)
+      → fade → encode
 ```
 
 - **All color math lives in Swift** (`FilmModel`, `TransferFunction`, `ColorMath`) and is unit-tested. The GPU
@@ -104,6 +139,9 @@ These came from the DaVinci Resolve manual, Apple's SDK and the camera makers' p
   test checks. Clips declare Apple Log through `kCMFormatDescriptionExtension_LogTransferFunction`.
 - **Apple Log 2** (iPhone 17 Pro) uses an unpublished gamut. Emulist detects it and says so, rather than inventing
   constants.
+- **Fujifilm's LUTs** take F-Log2 / F-Gamut input (F-Gamut uses the BT.2020 primaries) and output BT.709, per
+  Fujifilm's "Overview of 3D LUTs for F-Log2". The F-Log2 constants come from Fujifilm's data sheet via
+  colour-science; 18% grey encodes to 0.3910, which a test checks.
 - **Measured on macOS 26:**
   - ColorSync's `itur_709` color space decodes with gamma 2.4.
   - AVFoundation decodes Rec.709 video with gamma ≈ 1.961.
@@ -123,13 +161,18 @@ $CLI sheet tagged.mov sheet.png --scale 0.25                 # neutral + every s
 $CLI render tagged.mov frame.png --stock nocturne-800 --time 1
 $CLI export tagged.mov out.mp4 --codec hevc --stock aurora-50
 $CLI bench tagged.mov                                        # LUT bake and per-frame GPU time
+$CLI install-fujifilm                                        # download Fujifilm's film simulations
+$CLI looks                                                   # list every look and its id
+$CLI render tagged.mov f.png --stock "lut:Fujifilm/FLog2_to_ETERNA_65grid_V.1.00.cube" --density 40
 ```
+
+Any grade setting can be overridden numerically from the command line, e.g. `--colorBoost 40` or `--gain.y 0.3`.
 
 ## Layout
 
 ```
 Sources/EmulistCore   color science, film model, Metal pipeline, video I/O, project model (no UI)
-Sources/Emulist       SwiftUI app: workspace state, viewer, inspector, stock strip, export
+Sources/Emulist       SwiftUI app: workspace state, viewer, look library, palettes, analog controls, export
 Sources/emulist-cli   headless rendering, test footage, benchmarks
 Tests/                Swift Testing suites
 scripts/              build-app.sh, test.sh, make-test-clip.sh, make-icon.swift
@@ -138,7 +181,8 @@ scripts/              build-app.sh, test.sh, make-test-clip.sh, make-icon.swift
 ## Roadmap
 
 - Waveform / vectorscope
-- Custom user stocks (JSON) and `.cube` import
+- Custom user stocks (JSON)
+- Curves and qualifiers
 - Gate weave, film breath and dust
-- Canon Log 3 and F-Log2
+- Canon Log 3
 - Apple Log 2, once Apple publishes it

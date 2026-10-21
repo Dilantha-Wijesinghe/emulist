@@ -45,7 +45,7 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
 
     init(workspace: Workspace) {
         self.workspace = workspace
-        renderer = (try? MetalContext.make()).map(FrameRenderer.init)
+        renderer = (try? MetalContext.make()).map { FrameRenderer(context: $0) }
         super.init()
         if renderer == nil {
             workspace.alert = AppAlert(title: "Metal unavailable", message: RenderError.noMetalDevice.localizedDescription)

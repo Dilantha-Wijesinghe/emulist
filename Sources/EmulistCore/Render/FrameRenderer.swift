@@ -7,7 +7,7 @@ import MetalPerformanceShaders
 ///
 ///     Y'CbCr → camera decode → working linear (exposure, white balance)
 ///            → [softness] → bloom + halation (scene-linear, half resolution)
-///            → grain (log exposure) → film LUT (negative + print + output encoding)
+///            → grain (log exposure) → look LUT (primary grade + film or LUT look + output encoding)
 ///
 /// Not thread-safe: use one renderer per thread of work (the viewer and each export own their own).
 public final class FrameRenderer: @unchecked Sendable {
@@ -31,21 +31,21 @@ public final class FrameRenderer: @unchecked Sendable {
         (max(16, Int((Double(width) * scale).rounded()) & ~1), max(16, Int((Double(height) * scale).rounded()) & ~1))
     }
 
-    private struct FilmLUTKey: Hashable {
-        let response: FilmResponse
-        let output: OutputTransform
-    }
-
     public let context: MetalContext
-    private var filmLUTs: [FilmLUTKey: MTLTexture] = [:]
-    private var filmLUTOrder: [FilmLUTKey] = []
+    /// Edge length of the baked look LUTs; thumbnails use a coarser grid to bake faster.
+    public let lutSize: Int
+    private let lutCacheCapacity: Int
+    private var filmLUTs: [ColorPipeline: MTLTexture] = [:]
+    private var filmLUTOrder: [ColorPipeline] = []
     private var decodeTables: [TransferFunction: MTLBuffer] = [:]
     private var textures: [String: MTLTexture] = [:]
     private var blurs: [Float: MPSImageGaussianBlur] = [:]
     private lazy var emptyTexture = try? context.makeTexture(width: 1, height: 1)
 
-    public init(context: MetalContext) {
+    public init(context: MetalContext, lutSize: Int = LUTBaker.filmLUTSize, lutCacheCapacity: Int = 16) {
         self.context = context
+        self.lutSize = lutSize
+        self.lutCacheCapacity = lutCacheCapacity
     }
 
     /// Encodes all passes for one frame and returns the display-encoded output texture (rgba16Float).
@@ -68,13 +68,13 @@ public final class FrameRenderer: @unchecked Sendable {
                                      into: commandBuffer)
 
         let output = try texture("output", width: width, height: height)
-        let gradeLUT = try filmLUT(FilmResponse(for: settings), output: settings.output)
-        let beforeLUT = try filmLUT(.neutral, output: settings.output)
+        let gradeLUT = try filmLUT(ColorPipeline(settings))
+        let beforeLUT = try filmLUT(.neutral(output: settings.output))
         var uniforms = FilmUniforms(
             luminance: WorkingSpace.luminance.float4,
             shaper: SIMD4(Float(WorkingSpace.shaperRange.lowerBound),
                           Float(WorkingSpace.shaperRange.upperBound - WorkingSpace.shaperRange.lowerBound),
-                          Float(WorkingSpace.midGrey), Float(LUTBaker.filmLUTSize)),
+                          Float(WorkingSpace.midGrey), Float(lutSize)),
             bloom: SIMD4(Float(effects.bloomAmount), 0, 0, 0),
             halation: SIMD4(Float(effects.halationAmount), Float(effects.halationTint.x),
                             Float(effects.halationTint.y), Float(effects.halationTint.z)),
@@ -219,17 +219,16 @@ public final class FrameRenderer: @unchecked Sendable {
         return buffer
     }
 
-    /// Film LUTs are cached by response, so switching looks back and forth (or drawing stock thumbnails)
+    /// Baked looks are cached by pipeline, so switching looks back and forth (or drawing thumbnails)
     /// does not rebake.
-    private func filmLUT(_ response: FilmResponse, output: OutputTransform) throws -> MTLTexture {
-        let key = FilmLUTKey(response: response, output: output)
+    private func filmLUT(_ key: ColorPipeline) throws -> MTLTexture {
         if let lut = filmLUTs[key] {
             filmLUTOrder.removeAll { $0 == key }
             filmLUTOrder.append(key)
             return lut
         }
-        let size = LUTBaker.filmLUTSize
-        let data = LUTBaker.filmLUT(FilmModel(response: response, output: output), size: size)
+        let size = lutSize
+        let data = LUTBaker.filmLUT(try key.makeRenderer(), size: size)
         let descriptor = MTLTextureDescriptor()
         descriptor.textureType = .type3D
         descriptor.pixelFormat = .rgba16Float
@@ -244,7 +243,7 @@ public final class FrameRenderer: @unchecked Sendable {
         }
         filmLUTs[key] = lut
         filmLUTOrder.append(key)
-        if filmLUTOrder.count > 16 { filmLUTs[filmLUTOrder.removeFirst()] = nil }
+        if filmLUTOrder.count > lutCacheCapacity { filmLUTs[filmLUTOrder.removeFirst()] = nil }
         return lut
     }
 }

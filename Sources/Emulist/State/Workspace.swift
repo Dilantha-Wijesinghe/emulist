@@ -44,6 +44,10 @@ final class Workspace {
     private(set) var missingMedia: EmulistProject?
     var needsProfileConfirmation = false
 
+    /// Every look in the library (built-in stocks and installed LUTs).
+    private(set) var looks = LookLibrary.shared.all
+    private(set) var isInstallingFujifilm = false
+
     var compare = CompareMode.off
     var splitPosition = 0.5
     var quality = PreviewQuality.full
@@ -56,6 +60,11 @@ final class Workspace {
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
     private(set) var canUndo = false
     private(set) var canRedo = false
+
+    init() {
+        // Parse installed LUTs up front so thumbnails and first selections don't wait on disk.
+        Task.detached(priority: .utility) { LookLibrary.shared.preload() }
+    }
 
     var title: String {
         projectURL?.deletingPathExtension().lastPathComponent ?? media?.url.deletingPathExtension().lastPathComponent
@@ -101,6 +110,59 @@ final class Workspace {
         edit { $0.select(stock) }
     }
 
+    /// Returns the wheels and the adjustments under them to neutral, in one undo step.
+    func resetPrimaries() {
+        edit { settings in
+            let neutral = GradeSettings()
+            for kind in ColorWheel.Kind.allCases { settings[wheel: kind] = neutral[wheel: kind] }
+            for spec in Controls.primaries + Controls.input { settings[keyPath: spec.keyPath] = neutral[keyPath: spec.keyPath] }
+        }
+    }
+
+    // MARK: Look library
+
+    var hasFujifilmLooks: Bool { looks.contains { $0.collection == FujifilmLooks.collection } }
+
+    /// Downloads Fujifilm's official film simulation LUTs and adds them to the library.
+    func installFujifilm() {
+        guard !isInstallingFujifilm else { return }
+        isInstallingFujifilm = true
+        Task {
+            defer { isInstallingFujifilm = false }
+            do {
+                try await FujifilmLooks.install()
+                reloadLooks()
+                Task.detached(priority: .utility) { LookLibrary.shared.preload() }
+            } catch {
+                alert = AppAlert(title: "Couldn’t download the Fujifilm looks", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func presentImportLUT() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [Self.cubeType]
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose .cube LUTs. Name them after their input (e.g. “F-Log2”, “S-Log3”); otherwise Apple Log is assumed."
+        guard panel.runModal() == .OK else { return }
+        panel.urls.forEach(importLUT)
+    }
+
+    func importLUT(_ url: URL) {
+        do {
+            let look = try LookLibrary.shared.importLUT(url)
+            reloadLooks()
+            if media != nil { select(look) }
+        } catch {
+            alert = AppAlert(title: "Couldn’t import “\(url.lastPathComponent)”", message: error.localizedDescription)
+        }
+    }
+
+    private func reloadLooks() {
+        looks = LookLibrary.shared.all
+        thumbnails.looksChanged(looks)
+    }
+
     private func apply(_ next: GradeSettings) {
         settings = next
         hasUnsavedChanges = true
@@ -116,17 +178,20 @@ final class Workspace {
 
     // MARK: Opening
 
-    static let openableTypes: [UTType] = [.movie, .quickTimeMovie, .mpeg4Movie, UTType(filenameExtension: EmulistProject.fileExtension) ?? .json]
+    static let cubeType = UTType(filenameExtension: "cube") ?? .data
+    static let openableTypes: [UTType] = [.movie, .quickTimeMovie, .mpeg4Movie, cubeType,
+                                          UTType(filenameExtension: EmulistProject.fileExtension) ?? .json]
 
     func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = Self.openableTypes
-        panel.message = "Choose LOG footage or an Emulist project"
+        panel.message = "Choose LOG footage, an Emulist project or a .cube LUT"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         open(url)
     }
 
     func open(_ url: URL) {
+        if url.pathExtension.lowercased() == "cube" { return importLUT(url) }
         Task {
             if url.pathExtension.lowercased() == EmulistProject.fileExtension {
                 await openProject(url)
@@ -207,7 +272,7 @@ final class Workspace {
         history.reset()
         updateUndoState()
         playback.load(info)
-        thumbnails.reset(settings: settings, orientation: info.transform)
+        thumbnails.reset(settings: settings, orientation: info.transform, looks: looks)
         NSDocumentController.shared.noteNewRecentDocumentURL(projectURL ?? info.url)
     }
 

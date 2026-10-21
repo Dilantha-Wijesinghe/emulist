@@ -37,6 +37,9 @@ public struct ColorPrimaries: Codable, Hashable, Sendable {
     public static let vGamut = ColorPrimaries(
         red: .init(0.730, 0.280), green: .init(0.165, 0.840), blue: .init(0.100, -0.030), white: .d65)
 
+    /// Fujifilm F-Gamut: identical to ITU-R BT.2020.
+    public static let fGamut = rec2020
+
     /// Normalized primary matrix: linear RGB -> CIE XYZ.
     public var rgbToXYZ: Matrix3 {
         let p = Matrix3(columns: (red.xyz * red.y, green.xyz * green.y, blue.xyz * blue.y))
@@ -91,12 +94,5 @@ extension Chromaticity {
         let v = 9 * y / d + dv
         let d2 = 6 * u - 16 * v + 12
         return Chromaticity(9 * u / d2, 4 * v / d2)
-    }
-}
-
-extension Matrix3 {
-    /// Row-major float array (for GPU uniforms).
-    var floatRows: [Float] {
-        (0..<3).flatMap { r in (0..<3).map { c in Float(self[c][r]) } }
     }
 }
