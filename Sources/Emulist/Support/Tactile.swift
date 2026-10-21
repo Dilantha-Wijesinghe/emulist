@@ -164,6 +164,7 @@ struct ValueField: View {
                     .padding(.horizontal, 2)
                     .background(Theme.inset, in: RoundedRectangle(cornerRadius: 3))
                     .onAppear { isFocused = true }
+                    .focusedValue(\.isTypingValue, true)
             } else {
                 Text(text)
                     .foregroundStyle(color)
@@ -191,4 +192,14 @@ extension String {
     var typedNumber: Double? {
         Double(trimmingCharacters(in: CharacterSet(charactersIn: "+% ").union(.whitespaces)))
     }
+}
+
+extension FocusedValues {
+    /// True while a value is being typed, so bare-key shortcuts (Space, arrows, B) leave the keys to the field.
+    var isTypingValue: Bool? {
+        get { self[TypingValueKey.self] }
+        set { self[TypingValueKey.self] = newValue }
+    }
+
+    private struct TypingValueKey: FocusedValueKey { typealias Value = Bool }
 }

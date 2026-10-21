@@ -83,8 +83,9 @@ Velvia, Astia, Classic Chrome, Reala Ace, Pro Neg. Std, Classic Neg., Eterna, Et
 They land in `~/Library/Application Support/Emulist/Looks/Fujifilm` and are never bundled with Emulist.
 
 Your footage reaches them through a colorimetric bridge: camera LOG → scene-linear Rec.2020 (= F-Gamut) → F-Log2.
-Each simulation then renders exactly as Fujifilm designed it, with the primaries, grain, halation and bloom
-still applied around it. Intensity blends the simulation with Emulist's neutral print. Extreme saturation on
+Each simulation then renders as Fujifilm designed it, with the primaries, grain, halation and bloom still
+applied around it. Only colors at the very edge of F-Gamut, or pushed beyond it by the grade, are first rolled
+softly back inside, so the LUT never clips them flat. Intensity blends the simulation with Emulist's neutral print. Extreme saturation on
 an already-vivid look (e.g. Velvia at 200%) can still clip inside Fujifilm's LUT.
 
 ### Your own LUTs

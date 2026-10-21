@@ -58,7 +58,7 @@ public struct ColorPipeline: Hashable, Sendable {
             /// Log exposure -> the LUT's display-linear Rec.709 output (its signal is for a gamma 2.4 display).
             /// Colors pushed outside the camera gamut are rolled back in first, so the LUT never clips them flat.
             func displayLinear(stops: RGB) -> RGB {
-                let code = GamutCompression.compress(toInput * WorkingSpace.linear(stops: stops)).encoded(transfer)
+                let code = GamutCompression.cameraEdge.compress(toInput * WorkingSpace.linear(stops: stops)).encoded(transfer)
                 return simd_clamp(cube.sample(code), .zero, RGB(repeating: 1)).decoded(.gamma24)
             }
         }

@@ -42,7 +42,7 @@ public struct FilmModel: Sendable {
         var y = printDensity(stops: mean + (mixed - mean) * r.separation)
         let luma = simd_dot(y, WorkingSpace.luminance)
         y = RGB(repeating: luma) + (y - RGB(repeating: luma)) * r.printSaturation
-        return simd_clamp(GamutCompression.compress(toOutput * y), .zero, RGB(repeating: 1))
+        return simd_clamp(GamutCompression.print.compress(toOutput * y), .zero, RGB(repeating: 1))
     }
 
     /// Display-linear output of the print, before gamut mapping and encoding (useful for tests and plots).
@@ -98,13 +98,20 @@ enum Curves {
 }
 
 /// Soft gamut compression toward the achromatic axis (after the ACES Reference Gamut Compression idea):
-/// colors already inside the gamut are untouched below `threshold`, out-of-gamut colors are rolled in.
-enum GamutCompression {
-    static let threshold = 0.8
-    static let limit = 1.6
-    static let power = 1.2
+/// colors closer to the axis than `threshold` are untouched; beyond it, distances up to `limit` are rolled
+/// smoothly into the gamut.
+struct GamutCompression: Sendable {
+    let threshold: Double
+    let limit: Double
+    var power = 1.2
 
-    static func compress(_ rgb: RGB) -> RGB {
+    /// For the print: a gentle, early roll-off that keeps saturated film color smooth.
+    static let print = GamutCompression(threshold: 0.8, limit: 1.6)
+    /// Before a camera LUT: only colors at the very edge of (or beyond) the camera gamut are touched,
+    /// so the LUT sees its intended input everywhere else and never clips flat.
+    static let cameraEdge = GamutCompression(threshold: 0.95, limit: 1.5)
+
+    func compress(_ rgb: RGB) -> RGB {
         let achromatic = max(rgb.x, rgb.y, rgb.z)
         guard achromatic > 0 else { return .zero }
         let scale = (limit - threshold) / pow(pow((1 - threshold) / (limit - threshold), -power) - 1, 1 / power)

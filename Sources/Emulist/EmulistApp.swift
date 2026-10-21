@@ -8,7 +8,7 @@ struct EmulistApp: App {
     var body: some Scene {
         Window("Emulist", id: "main") {
             ContentView(workspace: appDelegate.workspace)
-                .frame(minWidth: 1040, minHeight: 660)
+                .frame(minWidth: 1100, minHeight: 800)
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)
         }
@@ -36,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct AppCommands: Commands {
     let workspace: Workspace
+    @FocusedValue(\.isTypingValue) private var isTyping
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -56,18 +57,22 @@ struct AppCommands: Commands {
         CommandMenu("Playback") {
             Button(workspace.playback.isPlaying ? "Pause" : "Play") { workspace.playback.togglePlayback() }
                 .keyboardShortcut(.space, modifiers: [])
+                .disabled(isTyping == true)
             Button("Previous Frame") { workspace.playback.step(-1) }.keyboardShortcut(.leftArrow, modifiers: [])
+                .disabled(isTyping == true)
             Button("Next Frame") { workspace.playback.step(1) }.keyboardShortcut(.rightArrow, modifiers: [])
+                .disabled(isTyping == true)
             Button("Go to Start") { workspace.playback.seek(to: 0) }.keyboardShortcut(.home, modifiers: [])
+                .disabled(isTyping == true)
             Divider()
             Toggle("Loop", isOn: Binding(get: { workspace.playback.isLooping }, set: { workspace.playback.isLooping = $0 }))
         }
         CommandGroup(before: .toolbar) {
             Button("Toggle Before / After") { workspace.toggleBefore() }.keyboardShortcut("b", modifiers: [])
-                .disabled(workspace.media == nil)
+                .disabled(workspace.media == nil || isTyping == true)
             Button("Split Compare") { workspace.compare = workspace.compare == .split ? .off : .split }
                 .keyboardShortcut("b", modifiers: [.shift])
-                .disabled(workspace.media == nil)
+                .disabled(workspace.media == nil || isTyping == true)
             Divider()
         }
     }
