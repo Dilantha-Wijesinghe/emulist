@@ -12,7 +12,7 @@ import simd
     }
     """
 
-    private static var busy: GradeSettings {
+    static var busy: GradeSettings {
         var s = GradeSettings()
         s.lift = ColorWheel(x: 0.3, y: -0.2, master: 0.05)
         s.gamma = ColorWheel(x: 0, y: 0.25, master: -0.1)

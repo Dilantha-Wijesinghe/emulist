@@ -47,6 +47,7 @@ struct LookLibraryView: View {
                                         newName = preset.name
                                         renaming = preset
                                     }
+                                    Button("Export as .cube…") { workspace.exportCube(preset) }
                                     Divider()
                                     Button("Delete", role: .destructive) { workspace.delete(preset) }
                                 }
@@ -95,6 +96,7 @@ struct LookLibraryView: View {
                 .equatable()
                 .contextMenu {
                     Button("Apply") { workspace.apply(look.preset) }
+                    Button("Export as .cube…") { workspace.exportCube(look.preset) }
                     Button("Open Recipe Page") { NSWorkspace.shared.open(look.recipe.url) }
                 }
             }

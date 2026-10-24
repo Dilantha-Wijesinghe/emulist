@@ -77,6 +77,7 @@ struct AppCommands: Commands {
             Button("Take Snapshot") { workspace.takeSnapshot() }.keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(noClip)
             Button("Save Look…") { workspace.saveLook() }.disabled(noClip)
+            Button("Export Look as .cube…") { workspace.exportCube() }.disabled(noClip)
         }
         CommandMenu("Clip") {
             Button("Previous Clip") { workspace.selectAdjacentClip(-1) }.keyboardShortcut(.leftArrow, modifiers: [.command, .option])

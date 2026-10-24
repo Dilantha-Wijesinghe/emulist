@@ -100,6 +100,93 @@ struct SaveLookSheet: View {
     private var name: String { draft.name.trimmingCharacters(in: .whitespaces) }
 }
 
+/// Export Look as .cube…: bakes a grade into a 3D LUT for other apps, e.g. DaVinci Resolve.
+struct ExportCubeSheet: View {
+    let workspace: Workspace
+    let draft: LookDraft
+    @State private var inputID: String
+    @State private var output = OutputTransform.rec709Gamma24
+    @State private var size = 33
+    @State private var isExporting = false
+    @Environment(\.dismiss) private var dismiss
+
+    init(workspace: Workspace, draft: LookDraft) {
+        self.workspace = workspace
+        self.draft = draft
+        _inputID = State(initialValue: draft.settings.cameraProfileID)
+    }
+
+    private var input: CameraProfile { CameraProfile.with(id: inputID) ?? .appleLog }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Export Look as .cube").font(.system(size: 16, weight: .semibold))
+            Text(draft.name).font(.system(size: 12)).foregroundStyle(Theme.secondaryText)
+            row("Input") {
+                Picker("Input", selection: $inputID) {
+                    ForEach(CameraProfile.all) { Text($0.name).tag($0.id) }
+                }
+            }
+            row("Output") {
+                Picker("Output", selection: $output) {
+                    ForEach(OutputTransform.allCases) { Text($0.name).tag($0) }
+                }
+            }
+            row("Grid") {
+                Picker("Grid", selection: $size) {
+                    Text("33").tag(33)
+                    Text("65").tag(65)
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+            Text("Maps \(input.name) footage to \(output.name) with the look’s film, primaries and printer lights. Grain, halation and bloom work across neighboring pixels, so no LUT can carry them. The clip’s exposure and white balance are left out.")
+                .font(.system(size: 11))
+                .foregroundStyle(Theme.tertiaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                if isExporting { ProgressView().controlSize(.small) }
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Export…", action: export).keyboardShortcut(.defaultAction)
+            }
+            .disabled(isExporting)
+        }
+        .padding(24)
+        .frame(width: 420)
+    }
+
+    private func row<Control: View>(_ title: String, @ViewBuilder control: () -> Control) -> some View {
+        HStack {
+            Text(title).foregroundStyle(Theme.secondaryText)
+            Spacer()
+            control().labelsHidden()
+        }
+    }
+
+    private func export() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [Workspace.cubeType]
+        panel.nameFieldStringValue = "\(draft.name).cube"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        var settings = draft.settings
+        settings.output = output
+        let (input, size, title) = (input, size, draft.name)
+        isExporting = true
+        Task {
+            // A 65-point LUT is 275k lines of text: bake and write off the main thread.
+            let result = await Task.detached {
+                Result { try CubeLUT(baking: settings, input: input, size: size, title: title).cubeData().write(to: url, options: .atomic) }
+            }.value
+            isExporting = false
+            if case .failure(let error) = result {
+                workspace.alert = AppAlert(title: "Couldn’t export “\(url.lastPathComponent)”", message: error.localizedDescription)
+            }
+            dismiss()
+        }
+    }
+}
+
 /// Toolbar button: click to snapshot the grade, or open the menu of this clip's snapshots.
 struct SnapshotsMenu: View {
     let workspace: Workspace

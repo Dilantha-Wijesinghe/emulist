@@ -95,6 +95,20 @@ public struct CubeLUT: Sendable {
         try self.init(size: size, values: values, title: title, domainMin: domainMin, domainMax: domainMax)
     }
 
+    /// The LUT as a `.cube` file: TITLE, LUT_3D_SIZE, the domain when it isn't 0…1, then one entry per
+    /// line with red varying fastest.
+    public func cubeData() -> Data {
+        var text = ""
+        if let title { text += "TITLE \"\(title.replacingOccurrences(of: "\"", with: "'"))\"\n" }
+        text += "LUT_3D_SIZE \(size)\n"
+        if domainMin != .zero || domainMax != RGB(repeating: 1) {
+            text += "DOMAIN_MIN \(domainMin.x) \(domainMin.y) \(domainMin.z)\nDOMAIN_MAX \(domainMax.x) \(domainMax.y) \(domainMax.z)\n"
+        }
+        text.reserveCapacity(text.utf8.count + values.count * 27)
+        for v in values { text += String(format: "%.6f %.6f %.6f\n", v.x, v.y, v.z) }
+        return Data(text.utf8)
+    }
+
     /// Tetrahedral interpolation; inputs outside the domain are clamped to its edge.
     public func sample(_ input: RGB) -> RGB {
         let n = Double(size - 1)
@@ -117,5 +131,30 @@ public struct CubeLUT: Sendable {
         if b > g { return c000 + (at(0, 0, 1) - c000) * b + (at(0, 1, 1) - at(0, 0, 1)) * g + (c111 - at(0, 1, 1)) * r }
         if b > r { return c000 + (at(0, 1, 0) - c000) * g + (at(0, 1, 1) - at(0, 1, 0)) * b + (c111 - at(0, 1, 1)) * r }
         return c000 + (at(0, 1, 0) - c000) * g + (at(1, 1, 0) - at(0, 1, 0)) * r + (c111 - at(1, 1, 0)) * b
+    }
+}
+
+extension CubeLUT {
+    /// A grade baked into a LUT for other apps (e.g. DaVinci Resolve): from `input` code values (0…1, full
+    /// range) to the grade's output encoding, through the same pipeline as the viewer. The clip's own
+    /// corrections (exposure, white balance) are left out, so the LUT carries the look; grain, halation and
+    /// bloom work on neighboring pixels, so no LUT can carry them.
+    public init(baking settings: GradeSettings, input: CameraProfile, size: Int, title: String) throws {
+        var look = settings
+        look.copy([.input], from: GradeSettings())
+        look.cameraProfileID = input.id
+        let toWorking = InputTransform.matrix(for: look)
+        let renderer = try ColorPipeline(look).makeRenderer()
+        let scale = 1 / Double(size - 1)
+        var values = [SIMD3<Float>](repeating: .zero, count: size * size * size)
+        values.withUnsafeMutableBufferPointer { buffer in
+            nonisolated(unsafe) let out = buffer
+            LUTBaker.forEachPoint(size: size) { point, r, g, b in
+                let code = RGB(Double(r), Double(g), Double(b)) * scale
+                let display = simd_clamp(renderer.render(toWorking * code.decoded(input.transfer)), .zero, RGB(repeating: 1))
+                out[point] = SIMD3<Float>(display)
+            }
+        }
+        try self.init(size: size, values: values, title: title)
     }
 }

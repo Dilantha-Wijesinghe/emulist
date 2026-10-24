@@ -13,6 +13,8 @@ import simd
 //   emulist-cli render <clip> <out.png> [options]     Render one frame
 //   emulist-cli sheet <clip> <out.png> [options]      Before + every stock, as a contact sheet
 //   emulist-cli export <clip> <out.mov> [options]     Export the graded clip
+//   emulist-cli cube <out.cube> [options]             Bake the grade into a .cube LUT (--input <profile id>
+//                                                     --output <rec709Gamma24|rec709Apple> --size <33|65>)
 //   emulist-cli tag-apple-log <clip> <out.mov>        Remux, declaring Apple Log the way an iPhone does
 //   emulist-cli verify-decode <clip>                  Viewer (player) and export (reader) decodes must be identical
 //   emulist-cli install-fujifilm [folder]             Install Fujifilm's film simulation LUTs (download, or from an unzipped folder)
@@ -59,7 +61,7 @@ struct Arguments {
         return settings
     }
 
-    static let reserved: Set = ["settings", "stock", "recipe", "time", "scale", "split", "codec", "clean", "collection", "columns"]
+    static let reserved: Set = ["settings", "stock", "recipe", "input", "output", "size", "time", "scale", "split", "codec", "clean", "collection", "columns"]
 
     /// Applies numeric `--key value` options to the settings' JSON (dotted keys reach nested values).
     func overriding(_ settings: GradeSettings) throws -> GradeSettings {
@@ -360,6 +362,20 @@ do {
             FileHandle.standardError.write(Data("\rexporting \(Int(progress * 100))%".utf8))
         }
         print(String(format: "\ndone in %.1fs", Date().timeIntervalSince(start)))
+    case "cube":
+        guard let destination = paths.first else { throw CLIError.usage("cube <out.cube>") }
+        var settings = try args.settings()
+        let inputID = args.options["input"] ?? CameraProfile.appleLog.id
+        guard let input = CameraProfile.with(id: inputID) else { throw CLIError.usage("Unknown input \(inputID)") }
+        let outputName = args.options["output"] ?? OutputTransform.rec709Gamma24.rawValue
+        guard let output = OutputTransform(rawValue: outputName) else { throw CLIError.usage("Unknown output \(outputName)") }
+        settings.output = output
+        let start = Date()
+        let cube = try CubeLUT(baking: settings, input: input, size: Int(args.double("size") ?? 65), title: settings.stock.name)
+        let baked = Date()
+        try cube.cubeData().write(to: destination)
+        print(String(format: "baked in %.0f ms, written in %.0f ms", baked.timeIntervalSince(start) * 1000,
+                     Date().timeIntervalSince(baked) * 1000))
     case "bench":
         guard paths.count == 1 else { throw CLIError.usage("bench <clip>") }
         let settings = try args.settings()

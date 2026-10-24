@@ -132,6 +132,17 @@ Clarity and Color Chrome FX Blue aren't modeled yet; a recipe's tooltip lists th
 data (`FujiXWeeklyRecipes.swift`), so adding one is a new entry. `emulist-cli render … --recipe "<name>"` renders
 one, and `sheet --collection Fuji` renders the simulations and recipes together.
 
+### Exporting a look as a LUT
+
+**Grade › Export Look as .cube…** (or *Export as .cube…* on a saved look or a recipe) bakes the grade into a 3D
+LUT for other apps, such as DaVinci Resolve. Choose the footage it takes (Apple Log by default, or any camera
+profile), the output (Rec.709 · Gamma 2.4 is what Resolve expects) and a 33- or 65-point grid. Every grid point
+runs through the same pipeline as the viewer, with the clip's exposure and white balance left out, so the LUT
+carries the look: film, primaries, printer lights and fade. Grain, halation and bloom work across neighboring
+pixels, so no LUT can carry them. On a 65 grid the LUT stays within half a code of Emulist on average; saturated
+colors through a steep look can differ by a few codes, as with any LUT. `emulist-cli cube <out.cube>` does the
+same from the command line.
+
 ### Your own LUTs
 
 Import any 3D `.cube` LUT with **+** in the library, or drop it on the window. Emulist reads the LUT's expected

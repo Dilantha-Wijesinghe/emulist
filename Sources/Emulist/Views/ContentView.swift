@@ -44,6 +44,7 @@ struct ContentView: View {
         .sheet(isPresented: $workspace.needsProfileConfirmation) { ProfileSheet(workspace: workspace) }
         .sheet(isPresented: $workspace.isPasteSheetPresented) { PasteGradeSheet(workspace: workspace) }
         .sheet(item: $workspace.lookDraft) { SaveLookSheet(workspace: workspace, draft: $0) }
+        .sheet(item: $workspace.cubeDraft) { ExportCubeSheet(workspace: workspace, draft: $0) }
         .alert(item: $workspace.alert) { alert in
             Alert(title: Text(alert.title), message: Text(alert.message))
         }

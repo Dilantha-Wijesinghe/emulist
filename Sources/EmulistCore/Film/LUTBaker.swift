@@ -17,19 +17,24 @@ public enum LUTBaker {
         }
         data.withUnsafeMutableBufferPointer { buffer in
             nonisolated(unsafe) let out = buffer
-            DispatchQueue.concurrentPerform(iterations: size) { b in
-                for g in 0..<size {
-                    for r in 0..<size {
-                        let value = pipeline.render(RGB(linear[r], linear[g], linear[b]))
-                        let index = ((b * size + g) * size + r) * 4
-                        out[index] = Float16(value.x)
-                        out[index + 1] = Float16(value.y)
-                        out[index + 2] = Float16(value.z)
-                    }
-                }
+            forEachPoint(size: size) { point, r, g, b in
+                let value = pipeline.render(RGB(linear[r], linear[g], linear[b]))
+                out[point * 4] = Float16(value.x)
+                out[point * 4 + 1] = Float16(value.y)
+                out[point * 4 + 2] = Float16(value.z)
             }
         }
         return data
+    }
+
+    /// Calls `body(point, r, g, b)` for every point of a size³ grid, in parallel; `point` counts with red
+    /// varying fastest, the order of GPU 3D textures and `.cube` files.
+    static func forEachPoint(size: Int, _ body: @Sendable (_ point: Int, _ r: Int, _ g: Int, _ b: Int) -> Void) {
+        DispatchQueue.concurrentPerform(iterations: size) { b in
+            for g in 0..<size {
+                for r in 0..<size { body((b * size + g) * size + r, r, g, b) }
+            }
+        }
     }
 
     /// 1D decode table: normalized code value -> scene-linear light.

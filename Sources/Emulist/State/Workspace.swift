@@ -35,7 +35,7 @@ struct AppAlert: Identifiable {
     let message: String
 }
 
-/// A grade about to be saved as a look (from the current clip or a snapshot).
+/// A grade about to be saved as a look or exported as a LUT (from the current clip, a snapshot or a look).
 struct LookDraft: Identifiable {
     let id = UUID()
     var name: String
@@ -104,6 +104,7 @@ final class Workspace {
     var exportScope = ExportScope.selectedClip
     var isPasteSheetPresented = false
     var lookDraft: LookDraft?
+    var cubeDraft: LookDraft?
     private(set) var isLoading = false
 
     /// True during a drag or scroll of a control (the viewer previews on a coarser LUT meanwhile).
@@ -256,10 +257,24 @@ final class Workspace {
 
     // MARK: Saved looks (presets)
 
-    /// Opens the Save Look sheet for `settings` (the current grade by default).
+    /// Opens the Save Look sheet for `source` (the current grade by default).
     func saveLook(from source: GradeSettings? = nil, name: String? = nil) {
+        lookDraft = draft(from: source, name: name)
+    }
+
+    /// Opens the Export Look as .cube sheet for `source` (the current grade by default).
+    func exportCube(from source: GradeSettings? = nil, name: String? = nil) {
+        cubeDraft = draft(from: source, name: name)
+    }
+
+    /// A look applied as its thumbnail shows it: on top of the current grade.
+    func exportCube(_ preset: GradePreset) {
+        exportCube(from: preset.applied(to: settings), name: preset.name)
+    }
+
+    private func draft(from source: GradeSettings?, name: String?) -> LookDraft {
         flushContinuousEdit()
-        lookDraft = LookDraft(name: name ?? "\(settings.stock.name) Look", settings: source ?? settings)
+        return LookDraft(name: name ?? "\(settings.stock.name) Look", settings: source ?? settings)
     }
 
     func savePreset(name: String, groups: Set<GradeGroup>, settings: GradeSettings) {
