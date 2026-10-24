@@ -264,7 +264,7 @@ private struct ColorPathModule: View {
             labeledPicker("Preview", selection: $workspace.quality) {
                 ForEach(PreviewQuality.allCases) { Text($0.name).tag($0) }
             }
-            .help("Viewer resolution. Auto renders at half while you drag a control or play, and at full the moment you stop. Export is always full.")
+            .help("Viewer resolution. Auto renders at half while you drag a control, and at full the moment you let go. Export is always full.")
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)

@@ -16,15 +16,16 @@ enum ExportScope: String, CaseIterable, Identifiable {
 }
 
 enum PreviewQuality: String, CaseIterable, Identifiable {
-    /// Half while a control is dragged or the clip plays, full the moment it stops (like Resolve).
+    /// Half while a control is dragged, full the moment it's let go. (Playback keeps full resolution:
+    /// it already runs at the clip's rate.)
     case auto, full, half, quarter
     var id: String { rawValue }
     var name: String { rawValue.capitalized }
 
     /// Processing scale for a source whose short side is `shortSide` (reduced previews keep ≥ ~540 lines).
-    func scale(shortSide: Int, isInteracting: Bool) -> Double {
+    func scale(shortSide: Int, isDragging: Bool) -> Double {
         switch self {
-        case .auto: isInteracting ? Self.half.scale(shortSide: shortSide, isInteracting: true) : 1
+        case .auto: isDragging ? Self.half.scale(shortSide: shortSide, isDragging: true) : 1
         case .full: 1
         case .half: max(0.5, min(1, 540 / Double(shortSide)))
         case .quarter: max(0.25, min(1, 540 / Double(shortSide)))
