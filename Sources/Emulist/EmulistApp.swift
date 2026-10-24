@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.first { workspace.open(url) }
+        workspace.open(urls)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -39,14 +39,17 @@ struct AppCommands: Commands {
     let workspace: Workspace
     @FocusedValue(\.isTypingValue) private var isTyping
 
+    private var noClip: Bool { workspace.media == nil }
+
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("Open…") { workspace.presentOpenPanel() }.keyboardShortcut("o")
+            Button("Add Clips or Open Project…") { workspace.presentOpenPanel() }.keyboardShortcut("o")
+            Button("Close Project") { workspace.closeProject() }.disabled(workspace.clips.isEmpty)
         }
         CommandGroup(replacing: .saveItem) {
-            Button("Save Project") { workspace.save() }.keyboardShortcut("s").disabled(workspace.media == nil)
+            Button("Save Project") { workspace.save() }.keyboardShortcut("s").disabled(workspace.clips.isEmpty)
             Button("Save Project As…") { workspace.saveAs() }.keyboardShortcut("s", modifiers: [.command, .shift])
-                .disabled(workspace.media == nil)
+                .disabled(workspace.clips.isEmpty)
             Divider()
             Button("Export…") { workspace.isExportSheetPresented = true }.keyboardShortcut("e")
                 .disabled(workspace.media == nil)
@@ -54,6 +57,28 @@ struct AppCommands: Commands {
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") { workspace.undo() }.keyboardShortcut("z").disabled(!workspace.canUndo)
             Button("Redo") { workspace.redo() }.keyboardShortcut("z", modifiers: [.command, .shift]).disabled(!workspace.canRedo)
+        }
+        CommandMenu("Grade") {
+            Button("Copy Grade") { workspace.copyGrade() }.keyboardShortcut("c", modifiers: [.command, .option])
+                .disabled(noClip)
+            Button("Paste Grade") { workspace.pasteGrade() }.keyboardShortcut("v", modifiers: [.command, .option])
+                .disabled(workspace.copiedGrade == nil || noClip)
+            Button("Paste Grade…") { workspace.isPasteSheetPresented = true }
+                .keyboardShortcut("v", modifiers: [.command, .option, .shift])
+                .disabled(workspace.copiedGrade == nil || noClip)
+            Button("Apply Grade to All Clips") { workspace.applyGradeToAllClips() }.disabled(workspace.clips.count < 2)
+            Divider()
+            Button("Take Snapshot") { workspace.takeSnapshot() }.keyboardShortcut("s", modifiers: [.command, .option])
+                .disabled(noClip)
+            Button("Save Look…") { workspace.saveLook() }.disabled(noClip)
+        }
+        CommandMenu("Clip") {
+            Button("Previous Clip") { workspace.selectAdjacentClip(-1) }.keyboardShortcut(.leftArrow, modifiers: [.command, .option])
+                .disabled(workspace.clips.count < 2)
+            Button("Next Clip") { workspace.selectAdjacentClip(1) }.keyboardShortcut(.rightArrow, modifiers: [.command, .option])
+                .disabled(workspace.clips.count < 2)
+            Divider()
+            Button("Remove Clip from Project") { workspace.selectedClipID.map(workspace.removeClip) }.disabled(noClip)
         }
         CommandMenu("Playback") {
             Button(workspace.playback.isPlaying ? "Pause" : "Play") { workspace.playback.togglePlayback() }

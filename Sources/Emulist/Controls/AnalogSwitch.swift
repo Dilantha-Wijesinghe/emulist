@@ -2,6 +2,9 @@ import SwiftUI
 
 /// A small bat-handle toggle in a recessed slot, with a pilot lamp that glows when it's on.
 struct AnalogSwitchStyle: ToggleStyle {
+    /// What the switch turns on, for accessibility.
+    var name = "Enabled"
+
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 6) {
             Circle()
@@ -30,7 +33,7 @@ struct AnalogSwitchStyle: ToggleStyle {
             Haptics.toggle()
         }
         .accessibilityElement()
-        .accessibilityLabel(Text("Enabled"))
+        .accessibilityLabel(Text(name))
         .accessibilityValue(Text(configuration.isOn ? "On" : "Off"))
         .accessibilityAddTraits(.isButton)
     }
@@ -48,7 +51,8 @@ struct RackModule<Content: View>: View {
                 Text(title).captionStyle()
                 Spacer(minLength: 8)
                 if let isOn {
-                    Toggle("", isOn: isOn).toggleStyle(AnalogSwitchStyle()).help(isOn.wrappedValue ? "Turn off" : "Turn on")
+                    Toggle("", isOn: isOn).toggleStyle(AnalogSwitchStyle(name: title.capitalized))
+                        .help(isOn.wrappedValue ? "Turn off" : "Turn on")
                 }
             }
             content()

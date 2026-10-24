@@ -1,37 +1,88 @@
 import Foundation
 
-/// A saved grade (`.emulist`, JSON). Projects only reference footage; the source file is never modified.
+/// A saved session (`.emulist`, JSON): its clips, each with a grade and snapshots. Projects only
+/// reference footage; source files are never modified.
 public struct EmulistProject: Codable, Equatable, Sendable {
     public static let fileExtension = "emulist"
-    public static let currentSchemaVersion = 1
+    /// 2: several clips with snapshots. 1: a single clip (still opens).
+    public static let currentSchemaVersion = 2
 
     public var schemaVersion = currentSchemaVersion
     public var id = UUID()
     public var createdAt = Date()
     public var modifiedAt = Date()
-    public var media: MediaReference
-    public var settings: GradeSettings
+    public var clips: [ProjectClip]
+    public var selectedClipID: UUID?
     public var export: ExportSettings
 
-    public init(media: MediaReference, settings: GradeSettings, export: ExportSettings = .init()) {
-        self.media = media
-        self.settings = settings
+    public init(clips: [ProjectClip], selectedClipID: UUID? = nil, export: ExportSettings = .init()) {
+        self.clips = clips
+        self.selectedClipID = selectedClipID
         self.export = export
     }
 
-    public func encoded() throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        return try encoder.encode(self)
-    }
+    public func encoded() throws -> Data { try EmulistJSON.encode(self) }
 
     public static func decode(_ data: Data) throws -> EmulistProject {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let project = try decoder.decode(EmulistProject.self, from: data)
+        let project = try EmulistJSON.decode(EmulistProject.self, from: data)
         guard project.schemaVersion <= currentSchemaVersion else { throw ProjectError.newerVersion }
         return project
+    }
+
+    // MARK: Codable
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, id, createdAt, modifiedAt, clips, selectedClipID, export
+    }
+
+    /// Version 1 stored one clip's footage and grade at the top level.
+    private enum LegacyKeys: String, CodingKey {
+        case media, settings
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decode(Int.self, forKey: .schemaVersion)
+        id = try c.decode(UUID.self, forKey: .id)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        modifiedAt = try c.decode(Date.self, forKey: .modifiedAt)
+        export = try c.decodeIfPresent(ExportSettings.self, forKey: .export) ?? .init()
+        selectedClipID = try c.decodeIfPresent(UUID.self, forKey: .selectedClipID)
+        if let clips = try c.decodeIfPresent([ProjectClip].self, forKey: .clips) {
+            self.clips = clips
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+            clips = [ProjectClip(media: try legacy.decode(MediaReference.self, forKey: .media),
+                                 settings: try legacy.decode(GradeSettings.self, forKey: .settings))]
+        }
+    }
+}
+
+/// One clip in a project: its footage, its grade, and the grades it has been snapshotted at.
+public struct ProjectClip: Codable, Equatable, Identifiable, Sendable {
+    public var id = UUID()
+    public var media: MediaReference
+    public var settings: GradeSettings
+    public var snapshots: [GradeSnapshot] = []
+
+    public init(id: UUID = UUID(), media: MediaReference, settings: GradeSettings, snapshots: [GradeSnapshot] = []) {
+        self.id = id
+        self.media = media
+        self.settings = settings
+        self.snapshots = snapshots
+    }
+}
+
+/// A grade saved at a moment, to come back to or compare against.
+public struct GradeSnapshot: Codable, Equatable, Identifiable, Sendable {
+    public var id = UUID()
+    public var name: String
+    public var settings: GradeSettings
+    public var createdAt = Date()
+
+    public init(name: String, settings: GradeSettings) {
+        self.name = name
+        self.settings = settings
     }
 }
 

@@ -29,40 +29,67 @@ struct AppAlert: Identifiable {
     let message: String
 }
 
-/// The single source of truth for the open clip, its grade and the app's modes.
+/// A grade about to be saved as a look (from the current clip or a snapshot).
+struct LookDraft: Identifiable {
+    let id = UUID()
+    var name: String
+    let settings: GradeSettings
+}
+
+/// The single source of truth for the session: its clips, the selected clip's grade, saved looks and
+/// the app's modes.
 @MainActor @Observable
 final class Workspace {
     let playback = PlaybackController()
-    let thumbnails = StockThumbnails()
+    let thumbnails = LibraryThumbnails()
+    let clipThumbnails = ClipThumbnails()
 
-    private(set) var media: MediaInfo?
-    private(set) var settings = GradeSettings()
+    // Session
+    private(set) var clips: [Clip] = []
+    private(set) var selectedClipID: UUID?
+    /// Clips ⌘-clicked together in the clip strip; pastes go to all of them. Always holds the selection.
+    var pickedClipIDs: Set<UUID> = []
     var exportSettings = ExportSettings()
     private(set) var projectURL: URL?
     private(set) var hasUnsavedChanges = false
-    /// A project whose footage could not be found; offered for relinking.
-    private(set) var missingMedia: EmulistProject?
-    var needsProfileConfirmation = false
 
+    // The selected clip's working copy (see `Clip`)
+    private(set) var media: MediaInfo?
+    private(set) var settings = GradeSettings()
+    @ObservationIgnored private var history = EditHistory<GradeSettings>()
+    private(set) var canUndo = false
+    private(set) var canRedo = false
+    var needsProfileConfirmation = false {
+        didSet { if !needsProfileConfirmation, let index = selectedIndex { clips[index].needsProfileConfirmation = false } }
+    }
+
+    // Looks
     /// Every look in the library (built-in stocks and installed LUTs).
     private(set) var looks = LookLibrary.shared.all
+    private(set) var presets = PresetStore.standard.load()
     private(set) var isInstallingFujifilm = false
+    /// A grade copied with Copy Grade, waiting to be pasted.
+    private(set) var copiedGrade: GradeSettings?
+    /// The groups Paste Grade copies; remembered between launches.
+    var pasteGroups: Set<GradeGroup> = Workspace.savedPasteGroups {
+        didSet { UserDefaults.standard.set(pasteGroups.map(\.rawValue), forKey: Self.pasteGroupsKey) }
+    }
 
+    // Modes
     var compare = CompareMode.off
     var splitPosition = 0.5
     var quality = PreviewQuality.full
     var alert: AppAlert?
     var isExportSheetPresented = false
+    var isPasteSheetPresented = false
+    var lookDraft: LookDraft?
     private(set) var isLoading = false
 
-    @ObservationIgnored private var history = EditHistory<GradeSettings>()
     /// True during a drag or scroll of a control (the viewer previews on a coarser LUT meanwhile).
     @ObservationIgnored private(set) var isContinuousEdit = false
     /// Drag changes waiting for the next display frame (see `continuousEdit`).
     @ObservationIgnored private var pendingSettings: GradeSettings?
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
-    private(set) var canUndo = false
-    private(set) var canRedo = false
 
     init() {
         // Parse installed LUTs up front so thumbnails and first selections don't wait on disk.
@@ -70,9 +97,11 @@ final class Workspace {
     }
 
     var title: String {
-        projectURL?.deletingPathExtension().lastPathComponent ?? media?.url.deletingPathExtension().lastPathComponent
-            ?? "Emulist"
+        projectURL?.deletingPathExtension().lastPathComponent ?? selectedClip?.name ?? "Emulist"
     }
+
+    var selectedClip: Clip? { selectedIndex.map { clips[$0] } }
+    private var selectedIndex: Int? { clips.firstIndex { $0.id == selectedClipID } }
 
     // MARK: Editing
 
@@ -83,7 +112,7 @@ final class Workspace {
         change(&next)
         guard next != settings else { return }
         history.record(settings)
-        apply(next)
+        commit(next)
     }
 
     /// Continuous changes (slider drags) collapse into a single undo step per gesture.
@@ -112,17 +141,17 @@ final class Workspace {
     func flushContinuousEdit() {
         guard let next = pendingSettings else { return }
         pendingSettings = nil
-        apply(next)
+        commit(next)
     }
 
     func undo() {
         flushContinuousEdit()
-        if let previous = history.undo(from: settings) { apply(previous) }
+        if let previous = history.undo(from: settings) { commit(previous) }
     }
 
     func redo() {
         flushContinuousEdit()
-        if let next = history.redo(from: settings) { apply(next) }
+        if let next = history.redo(from: settings) { commit(next) }
     }
 
     func select(_ stock: FilmStock) {
@@ -136,6 +165,120 @@ final class Workspace {
             for kind in ColorWheel.Kind.allCases { settings[wheel: kind] = neutral[wheel: kind] }
             for spec in Controls.primaries + Controls.input { settings[keyPath: spec.keyPath] = neutral[keyPath: spec.keyPath] }
         }
+    }
+
+    /// Sets the selected clip's grade (undo history is handled by the callers).
+    private func commit(_ next: GradeSettings) {
+        settings = next
+        updateUndoState()
+        refreshLibraryThumbnails()
+        sessionChanged()
+    }
+
+    private func updateUndoState() {
+        canUndo = history.canUndo
+        canRedo = history.canRedo
+    }
+
+    // MARK: Copy, paste and snapshots
+
+    func copyGrade() {
+        flushContinuousEdit()
+        copiedGrade = settings
+    }
+
+    /// Pastes the copied grade's `pasteGroups` onto the picked clips (or every clip): one undo step each.
+    func pasteGrade(toAllClips: Bool = false) {
+        guard let copiedGrade else { return }
+        copyGrade(copiedGrade, groups: pasteGroups, to: toAllClips ? Set(clips.map(\.id)) : pickedClipIDs)
+    }
+
+    /// Copies the selected clip's grade (`pasteGroups` of it) onto every other clip.
+    func applyGradeToAllClips() {
+        flushContinuousEdit()
+        copyGrade(settings, groups: pasteGroups, to: Set(clips.map(\.id)).subtracting([selectedClipID].compactMap { $0 }))
+    }
+
+    private func copyGrade(_ source: GradeSettings, groups: Set<GradeGroup>, to clipIDs: Set<UUID>) {
+        for index in clips.indices where clipIDs.contains(clips[index].id) {
+            if clips[index].id == selectedClipID {
+                edit { $0.copy(groups, from: source) }
+            } else {
+                var pasted = clips[index].settings
+                pasted.copy(groups, from: source)
+                guard pasted != clips[index].settings else { continue }
+                clips[index].history.record(clips[index].settings)
+                clips[index].settings = pasted
+            }
+        }
+        sessionChanged()
+    }
+
+    var snapshots: [GradeSnapshot] { selectedClip?.snapshots ?? [] }
+
+    func takeSnapshot() {
+        guard let index = selectedIndex else { return }
+        flushContinuousEdit()
+        clips[index].snapshots.append(GradeSnapshot(name: "Snapshot \(clips[index].snapshots.count + 1)", settings: settings))
+        sessionChanged()
+    }
+
+    func restore(_ snapshot: GradeSnapshot) {
+        edit { $0 = snapshot.settings }
+    }
+
+    func delete(_ snapshot: GradeSnapshot) {
+        guard let index = selectedIndex else { return }
+        clips[index].snapshots.removeAll { $0.id == snapshot.id }
+        sessionChanged()
+    }
+
+    // MARK: Saved looks (presets)
+
+    /// Opens the Save Look sheet for `settings` (the current grade by default).
+    func saveLook(from source: GradeSettings? = nil, name: String? = nil) {
+        flushContinuousEdit()
+        lookDraft = LookDraft(name: name ?? "\(settings.stock.name) Look", settings: source ?? settings)
+    }
+
+    func savePreset(name: String, groups: Set<GradeGroup>, settings: GradeSettings) {
+        store(GradePreset(name: name, groups: groups, settings: settings))
+    }
+
+    func apply(_ preset: GradePreset) {
+        edit { $0 = preset.applied(to: $0) }
+    }
+
+    func rename(_ preset: GradePreset, to name: String) {
+        var renamed = preset
+        renamed.name = name
+        store(renamed)
+    }
+
+    func delete(_ preset: GradePreset) {
+        do {
+            try PresetStore.standard.delete(preset)
+            presets.removeAll { $0.id == preset.id }
+            refreshLibraryThumbnails()
+        } catch {
+            alert = AppAlert(title: "Couldn’t delete “\(preset.name)”", message: error.localizedDescription)
+        }
+    }
+
+    private func store(_ preset: GradePreset) {
+        do {
+            try PresetStore.standard.save(preset)
+            if let index = presets.firstIndex(where: { $0.id == preset.id }) { presets[index] = preset } else { presets.append(preset) }
+            refreshLibraryThumbnails()
+        } catch {
+            alert = AppAlert(title: "Couldn’t save “\(preset.name)”", message: error.localizedDescription)
+        }
+    }
+
+    private static let pasteGroupsKey = "pasteGroups"
+    private static var savedPasteGroups: Set<GradeGroup> {
+        guard let raw = UserDefaults.standard.stringArray(forKey: pasteGroupsKey) else { return GradeGroup.creative }
+        return Set(raw.compactMap(GradeGroup.init(rawValue:)))
     }
 
     // MARK: Look library
@@ -179,120 +322,187 @@ final class Workspace {
 
     private func reloadLooks() {
         looks = LookLibrary.shared.all
-        thumbnails.looksChanged(looks)
+        refreshLibraryThumbnails()
     }
 
-    private func apply(_ next: GradeSettings) {
-        settings = next
-        hasUnsavedChanges = true
-        updateUndoState()
-        thumbnails.settingsChanged(next)
-        scheduleAutosave()
-    }
-
-    private func updateUndoState() {
-        canUndo = history.canUndo
-        canRedo = history.canRedo
+    private func refreshLibraryThumbnails() {
+        thumbnails.update(settings: settings, looks: looks, presets: presets)
     }
 
     // MARK: Opening
 
     static let cubeType = UTType(filenameExtension: "cube") ?? .data
-    static let openableTypes: [UTType] = [.movie, .quickTimeMovie, .mpeg4Movie, cubeType,
-                                          UTType(filenameExtension: EmulistProject.fileExtension) ?? .json]
+    static let projectType = UTType(filenameExtension: EmulistProject.fileExtension) ?? .json
+    static let openableTypes: [UTType] = [.movie, .quickTimeMovie, .mpeg4Movie, cubeType, projectType]
 
     func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = Self.openableTypes
-        panel.message = "Choose LOG footage, an Emulist project or a .cube LUT"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        open(url)
+        panel.allowsMultipleSelection = true
+        panel.message = "Choose LOG footage (several clips at once if you like), an Emulist project or .cube LUTs"
+        guard panel.runModal() == .OK else { return }
+        open(panel.urls)
     }
 
-    func open(_ url: URL) {
-        if url.pathExtension.lowercased() == "cube" { return importLUT(url) }
-        Task {
-            if url.pathExtension.lowercased() == EmulistProject.fileExtension {
-                await openProject(url)
-            } else {
-                await importFootage(url)
-            }
+    /// LUTs join the library; a project replaces the session (any footage alongside it is ignored);
+    /// otherwise footage is added to the session as clips.
+    func open(_ urls: [URL]) {
+        let byKind = Dictionary(grouping: urls) { $0.pathExtension.lowercased() }
+        byKind["cube"]?.forEach(importLUT)
+        if let project = byKind[EmulistProject.fileExtension]?.first {
+            Task { await openProject(project) }
+            return
         }
+        let footage = urls.filter { $0.pathExtension.lowercased() != "cube" }
+        if !footage.isEmpty { Task { await addClips(footage) } }
     }
 
-    private func importFootage(_ url: URL) async {
-        guard let info = await inspect(url) else { return }
-        var fresh = GradeSettings()
-        fresh.select(FilmStock.builtIn[0])
-        fresh.cameraProfileID = (info.detectedProfile ?? .appleLog).id
-        load(info, settings: fresh, projectURL: nil)
-        needsProfileConfirmation = info.detectedProfile == nil
+    private func addClips(_ urls: [URL]) async {
+        var added: [Clip] = []
+        for url in urls {
+            if let info = await inspect(url) { added.append(Clip(media: info)) }
+        }
+        guard let first = added.first else { return }
+        clips += added
+        selectClip(first.id)
+        sessionChanged()
+        added.forEach { NSDocumentController.shared.noteNewRecentDocumentURL($0.reference.url) }
     }
 
     private func openProject(_ url: URL) async {
         do {
             let project = try EmulistProject.decode(Data(contentsOf: url))
-            guard let mediaURL = project.media.resolve() else {
-                missingMedia = project
-                projectURL = url
-                return
+            var opened = project.clips.map(Clip.init)
+            for index in opened.indices {
+                // Missing footage leaves just that clip waiting to be relinked.
+                if let mediaURL = opened[index].reference.resolve(), let info = await inspect(mediaURL, quietly: true) {
+                    opened[index].media = info
+                }
             }
-            guard let info = await inspect(mediaURL) else { return }
-            load(info, settings: project.settings, projectURL: url)
+            closeProject()
+            clips = opened
             exportSettings = project.export
+            projectURL = url
+            selectClip(project.selectedClipID.flatMap { id in opened.first { $0.id == id }?.id } ?? opened.first?.id)
+            hasUnsavedChanges = false
+            clipThumbnails.update(thumbnailItems)
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
         } catch {
             alert = AppAlert(title: "Couldn’t open project", message: error.localizedDescription)
         }
     }
 
-    /// Points a project with missing footage at a new file, keeping every grading decision.
-    func relinkMissingMedia() {
-        guard let project = missingMedia else { return }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.movie]
-        panel.message = "Locate “\(URL(fileURLWithPath: project.media.path).lastPathComponent)”"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        Task {
-            guard let info = await inspect(url) else { return }
-            if !project.media.matches(info) {
-                alert = AppAlert(
-                    title: "This may be a different clip",
-                    message: "Its resolution or duration doesn’t match the original footage. Check that you picked the right file.")
-            }
-            load(info, settings: project.settings, projectURL: projectURL)
-            exportSettings = project.export
-            hasUnsavedChanges = true
-        }
-    }
-
-    func closeMissingMedia() {
-        missingMedia = nil
-        projectURL = nil
-    }
-
-    private func inspect(_ url: URL) async -> MediaInfo? {
+    private func inspect(_ url: URL, quietly: Bool = false) async -> MediaInfo? {
         isLoading = true
         defer { isLoading = false }
         do {
             return try await MediaInfo.inspect(url)
         } catch {
-            alert = AppAlert(title: "Couldn’t open footage", message: error.localizedDescription)
+            if !quietly { alert = AppAlert(title: "Couldn’t open footage", message: error.localizedDescription) }
             return nil
         }
     }
 
-    private func load(_ info: MediaInfo, settings: GradeSettings, projectURL: URL?) {
-        media = info
-        self.settings = settings
-        self.projectURL = projectURL
-        missingMedia = nil
-        hasUnsavedChanges = false
+    // MARK: Clips
+
+    func selectClip(_ id: UUID?) {
+        guard let id, id != selectedClipID || media == nil, let index = clips.firstIndex(where: { $0.id == id }) else { return }
+        flushContinuousEdit()
+        syncSelectedClip()
+        selectedClipID = id
+        pickedClipIDs = [id]
+        let clip = clips[index]
+        settings = clip.settings
+        history = clip.history
+        media = clip.media
         compare = .off
+        updateUndoState()
+        needsProfileConfirmation = clip.needsProfileConfirmation
+        if let media = clip.media {
+            playback.load(media)
+            thumbnails.reset(orientation: media.transform)
+            refreshLibraryThumbnails()
+        } else {
+            playback.unload()
+        }
+    }
+
+    /// ⌘-click: adds a clip to, or removes it from, the clips a paste goes to.
+    func togglePicked(_ id: UUID) {
+        guard id != selectedClipID else { return }
+        if pickedClipIDs.contains(id) { pickedClipIDs.remove(id) } else { pickedClipIDs.insert(id) }
+    }
+
+    func selectAdjacentClip(_ step: Int) {
+        guard let index = selectedIndex, clips.indices.contains(index + step) else { return }
+        selectClip(clips[index + step].id)
+    }
+
+    func removeClip(_ id: UUID) {
+        guard let index = clips.firstIndex(where: { $0.id == id }) else { return }
+        guard clips.count > 1 else { return closeProject() }
+        if id == selectedClipID { selectClip(clips[index == clips.count - 1 ? index - 1 : index + 1].id) }
+        clips.remove(at: index)
+        pickedClipIDs.remove(id)
+        sessionChanged()
+    }
+
+    /// Points the selected clip at its footage's new location, keeping every grading decision.
+    func relinkSelectedClip() {
+        guard let index = selectedIndex else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.movie]
+        panel.message = "Locate “\(URL(fileURLWithPath: clips[index].reference.path).lastPathComponent)”"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task {
+            guard let info = await inspect(url), let index = selectedIndex else { return }
+            if !clips[index].reference.matches(info) {
+                alert = AppAlert(
+                    title: "This may be a different clip",
+                    message: "Its resolution or duration doesn’t match the original footage. Check that you picked the right file.")
+            }
+            clips[index].link(info)
+            media = nil
+            selectClip(clips[index].id)
+            sessionChanged()
+        }
+    }
+
+    /// Ends the session: no clips, no project.
+    func closeProject() {
+        flushContinuousEdit()
+        playback.unload()
+        clips = []
+        selectedClipID = nil
+        pickedClipIDs = []
+        media = nil
+        settings = GradeSettings()
         history.reset()
         updateUndoState()
-        playback.load(info)
-        thumbnails.reset(settings: settings, orientation: info.transform, looks: looks)
-        NSDocumentController.shared.noteNewRecentDocumentURL(projectURL ?? info.url)
+        projectURL = nil
+        hasUnsavedChanges = false
+        needsProfileConfirmation = false
+        clipThumbnails.update([])
+    }
+
+    /// Writes the working copy back into the selected clip's record.
+    private func syncSelectedClip() {
+        guard let index = selectedIndex else { return }
+        clips[index].settings = settings
+        clips[index].history = history
+    }
+
+    private var thumbnailItems: [(id: UUID, media: MediaInfo, settings: GradeSettings)] {
+        clips.compactMap { clip in
+            clip.media.map { (clip.id, $0, clip.id == selectedClipID ? settings : clip.settings) }
+        }
+    }
+
+    /// Something worth saving changed: refresh the clip strip and autosave.
+    private func sessionChanged() {
+        hasUnsavedChanges = true
+        if clips.count > 1 { clipThumbnails.update(thumbnailItems) }
+        scheduleAutosave()
     }
 
     // MARK: Saving
@@ -302,18 +512,19 @@ final class Workspace {
     }
 
     func saveAs() {
-        guard media != nil else { return }
+        guard !clips.isEmpty else { return }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: EmulistProject.fileExtension) ?? .json]
+        panel.allowedContentTypes = [Self.projectType]
         panel.nameFieldStringValue = "\(title).\(EmulistProject.fileExtension)"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         write(to: url)
     }
 
     private func write(to url: URL) {
-        guard let media else { return }
+        flushContinuousEdit()
+        syncSelectedClip()
         do {
-            var project = EmulistProject(media: MediaReference(media), settings: settings, export: exportSettings)
+            var project = EmulistProject(clips: clips.map(\.saved), selectedClipID: selectedClipID, export: exportSettings)
             if url == projectURL, let existing = try? EmulistProject.decode(Data(contentsOf: url)) {
                 project.id = existing.id
                 project.createdAt = existing.createdAt
@@ -357,4 +568,8 @@ final class Workspace {
         case .before: 1
         }
     }
+}
+
+extension MediaReference {
+    var url: URL { URL(fileURLWithPath: path) }
 }

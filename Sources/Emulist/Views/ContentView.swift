@@ -22,6 +22,7 @@ struct ContentView: View {
                             }
                             separator.frame(height: 1)
                             TransportBar(workspace: workspace)
+                            clipStrip
                         }
                     }
                     separator.frame(height: 1)
@@ -29,7 +30,10 @@ struct ContentView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
-                EmptyStateView(workspace: workspace, isTargeted: isDropTargeted)
+                VStack(spacing: 0) {
+                    EmptyStateView(workspace: workspace, isTargeted: isDropTargeted)
+                    clipStrip
+                }
             }
         }
         .background(Theme.window)
@@ -38,6 +42,8 @@ struct ContentView: View {
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: drop)
         .sheet(isPresented: $workspace.isExportSheetPresented) { ExportSheet(workspace: workspace) }
         .sheet(isPresented: $workspace.needsProfileConfirmation) { ProfileSheet(workspace: workspace) }
+        .sheet(isPresented: $workspace.isPasteSheetPresented) { PasteGradeSheet(workspace: workspace) }
+        .sheet(item: $workspace.lookDraft) { SaveLookSheet(workspace: workspace, draft: $0) }
         .alert(item: $workspace.alert) { alert in
             Alert(title: Text(alert.title), message: Text(alert.message))
         }
@@ -45,11 +51,19 @@ struct ContentView: View {
 
     private var separator: some View { Rectangle().fill(Theme.separator) }
 
+    /// Shown once the session has more than one clip.
+    @ViewBuilder private var clipStrip: some View {
+        if workspace.clips.count > 1 {
+            separator.frame(height: 1)
+            ClipStrip(workspace: workspace)
+        }
+    }
+
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            Button { workspace.presentOpenPanel() } label: { Label("Open", systemImage: "plus") }
-                .help("Open footage or a project (⌘O)")
+            Button { workspace.presentOpenPanel() } label: { Label("Add Clips", systemImage: "plus") }
+                .help("Add clips, or open a project (⌘O)")
         }
         if workspace.media != nil {
             ToolbarItemGroup(placement: .principal) {
@@ -65,6 +79,7 @@ struct ContentView: View {
                 .help("Split before / after, drag the divider to wipe (⇧B)")
             }
             ToolbarItemGroup(placement: .primaryAction) {
+                SnapshotsMenu(workspace: workspace)
                 Button { workspace.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!workspace.canUndo)
                     .help("Undo (⌘Z)")
@@ -80,10 +95,13 @@ struct ContentView: View {
     }
 
     private func drop(_ providers: [NSItemProvider]) -> Bool {
-        guard let provider = providers.first else { return false }
-        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-            guard let url else { return }
-            Task { @MainActor in workspace.open(url) }
+        guard !providers.isEmpty else { return false }
+        Task {
+            var urls: [URL] = []
+            for provider in providers {
+                if let url = try? await provider.loadURL() { urls.append(url) }
+            }
+            workspace.open(urls)
         }
         return true
     }
@@ -152,5 +170,15 @@ private struct ProfileSheet: View {
         }
         .padding(24)
         .frame(width: 400)
+    }
+}
+
+private extension NSItemProvider {
+    func loadURL() async throws -> URL? {
+        try await withCheckedThrowingContinuation { continuation in
+            _ = loadObject(ofClass: URL.self) { url, error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: url) }
+            }
+        }
     }
 }

@@ -110,11 +110,18 @@ import simd
             url: URL(fileURLWithPath: "/tmp/clip.mov"), width: 3840, height: 2160, frameRate: 24, duration: 10,
             codec: "apch", colorPrimaries: nil, transferFunction: nil, logTransferFunction: nil, hasAudio: true,
             detectedProfile: .appleLog))
-        let project = EmulistProject(media: media, settings: settings, export: ExportSettings(codec: .h264))
+        // Whole seconds: files store ISO 8601 dates.
+        let date = Date(timeIntervalSince1970: 1_800_000_000)
+        var snapshot = GradeSnapshot(name: "Warm", settings: settings)
+        snapshot.createdAt = date
+        let clip = ProjectClip(media: media, settings: settings, snapshots: [snapshot])
+        var project = EmulistProject(clips: [clip, ProjectClip(media: media, settings: GradeSettings())],
+                                     selectedClipID: clip.id, export: ExportSettings(codec: .h264))
+        project.createdAt = date
+        project.modifiedAt = date
         let decoded = try EmulistProject.decode(project.encoded())
-        #expect(decoded.settings == settings)
-        #expect(decoded.export == project.export)
-        #expect(decoded.media.width == 3840)
+        #expect(decoded == project)
+        #expect(decoded.clips[0].media.width == 3840)
     }
 
     @Test func effectSizesScaleWithResolution() {

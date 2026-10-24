@@ -44,7 +44,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
     private let workspace: Workspace
     private var frame: (buffer: CVPixelBuffer, frameIndex: Int)?
     private var frameSerial = 0
-    private var mediaURL: URL?
+    /// The clip on screen: switching clips resets the frame, even between two clips of the same file.
+    private var clipID: UUID?
     private var lastState: RenderState?
     private var wasPlaying = false
     private var displayLink: CADisplayLink?
@@ -91,8 +92,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
             frame = nil
             return
         }
-        if mediaURL != media.url {
-            mediaURL = media.url
+        if clipID != workspace.selectedClipID {
+            clipID = workspace.selectedClipID
             frame = nil
             lastState = nil
         }

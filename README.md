@@ -21,8 +21,9 @@ Requires macOS 14.2+ on Apple Silicon.
 The window is laid out like Resolve's color page: looks on the left, the viewer in the middle, grading palettes
 along the bottom.
 
-1. **Drop footage** onto the window (or ⌘O). Apple Log is detected from the clip's metadata. If the file doesn't
-   declare its LOG curve, Emulist asks which profile it was shot in.
+1. **Drop footage** onto the window (or ⌘O), one clip or several. Apple Log is detected from the clip's metadata
+   (including Blackmagic Camera's untagged iPhone clips). If a file doesn't declare its LOG curve, Emulist asks
+   which profile it was shot in when you first open that clip.
 2. **Pick a look** in the library. Every thumbnail is your current frame, rendered live. Emulist's own film stocks
    are there from the start; *Download from Fujifilm* adds Fujifilm's official film simulations (see below).
 3. **Grade with the primaries** (bottom left), which work *under* the look like grading under a LUT in Resolve,
@@ -36,8 +37,22 @@ along the bottom.
 4. **Shape the film** in the rack (bottom right): intensity, push/pull and fade; printer lights; grain, halation
    and bloom, each with its own power switch.
 5. **Compare** with the two toolbar buttons: **Before / After** latches the ungraded image on and off (`B`), and **Split** shows a wipe you can drag (`⇧B`).
-6. **Export** (⌘E): ProRes 422 HQ, HEVC 10-bit or H.264, with audio.
-7. **Save** the grade as an `.emulist` project (⌘S). Saved projects autosave, and the footage is never modified.
+6. **Work across clips.** With two or more clips a strip appears under the viewer, with a live graded thumbnail
+   per clip. Click a clip to grade it; each clip keeps its own grade and its own undo history.
+   - **Copy Grade** (⌥⌘C) and **Paste Grade** (⌥⌘V). ⌘-click clips in the strip to pick several, and one paste
+     reaches them all. **Paste Grade…** (⇧⌥⌘V) chooses which parts travel, with a switch for each group: Input
+     (camera, exposure, white balance, off by default), Primaries, Look & Film, Printer Lights, Grain/Halation/Bloom
+     and Output. Every pasted clip stays fully editable, and each paste is one undo step on its clip.
+   - **Apply Grade to All Clips** copies the current clip's grade (the same groups) to every other clip.
+7. **Snapshots** (the camera button, or ⌥⌘S) save the clip's grade at a moment. Hold the button for the clip's
+   snapshots: restore one, save it as a look, or delete it.
+8. **My Looks.** *Save Current Look…* (the + in the library, or Grade › Save Look…) stores the parts of a grade you
+   choose. Saved looks appear at the top of the library, rendered live on your frame; click one to apply it.
+   Right-click to rename or delete. They're kept in `~/Library/Application Support/Emulist/Presets`.
+9. **Export** (⌘E) the current clip: ProRes 422 HQ, HEVC 10-bit or H.264, with audio.
+10. **Save** the session as an `.emulist` project (⌘S): every clip, its grade and its snapshots. Saved projects
+   autosave, footage is never modified, and a clip whose footage moved waits to be relinked without blocking the
+   others. Projects from earlier versions open as a single clip.
 
 **Every control works the same way.** Drag it (or scroll over it on a trackpad); hold ⌥ for fine control. It
 clicks into its default with a haptic detent on Force Touch trackpads. Double-click to reset, or click the value
@@ -48,8 +63,11 @@ to type one. Each drag or scroll burst is one undo step.
 | Space | Play / pause |
 | ← / → | Previous / next frame |
 | B, ⇧B | Before / after, split compare |
-| ⌘O, ⌘S, ⇧⌘S, ⌘E | Open, save, save as, export |
-| ⌘Z, ⇧⌘Z | Undo, redo (each slider drag is one step) |
+| ⌘O, ⌘S, ⇧⌘S, ⌘E | Add clips or open a project, save, save as, export |
+| ⌘Z, ⇧⌘Z | Undo, redo for the current clip (each slider drag is one step) |
+| ⌥⌘C, ⌥⌘V, ⇧⌥⌘V | Copy grade, paste grade, paste chosen parts |
+| ⌥⌘S | Take a snapshot |
+| ⌥⌘←, ⌥⌘→ | Previous / next clip |
 
 ### Output encoding
 
@@ -104,15 +122,17 @@ decode (10-bit Y'CbCr, no OS color conversion)
   → softness ("film resolution")
   → bloom + halation, added as light in scene-linear (half resolution, MPS Gaussian)
   → grain, as noise in log exposure (density), deterministic per frame
-  → look LUT (65³, baked in Swift):
-      primary grade (log: wheels, contrast, color, printer lights)
-      → film (negative → print → gamut map)  or  external LUT (via its camera encoding)
+  → primary grade, on the GPU (log: wheels, contrast, color, push, printer lights)
+  → look LUT (65³, baked in Swift; 33³ while a look control is dragged):
+      film (negative → print → gamut map)  or  external LUT (via its camera encoding)
       → fade → encode
 ```
 
-- **All color math lives in Swift** (`FilmModel`, `TransferFunction`, `ColorMath`) and is unit-tested. The GPU
-  only interpolates the baked tables. Camera decode is a 4096-entry 1D table, and the film is a 3D LUT over a log
-  shaper covering 20 stops.
+- **Color math lives in Swift** (`FilmModel`, `TransferFunction`, `ColorMath`, `PrimaryGrade`) and is
+  unit-tested. The GPU interpolates the baked tables, plus one exception: it runs the primary grade itself, so
+  grading never rebakes a LUT. A test runs the shader's grade against `PrimaryGrade` and requires them to agree to
+  within 0.002 stops. Camera decode is a 4096-entry 1D table, and the film is a 3D LUT over a log shaper covering
+  20 stops.
 - **Film model.** Per channel, in log exposure:
   1. Negative exposure and push.
   2. Inter-layer crosstalk and color separation (like dye-coupler interimage effects).
@@ -130,7 +150,9 @@ decode (10-bit Y'CbCr, no OS color conversion)
   grain canvas never drops below 1080 lines; smaller previews sample a filtered mip level. Preview and
   full-resolution export therefore match.
 - **Performance** (M3 Pro). The full UHD pipeline with every effect takes about 13 ms per frame. Half
-  resolution takes about 3 ms. A LUT re-bake takes about 13 ms.
+  resolution takes about 3 ms. Dragging a knob or wheel never rebakes; the viewer redraws 45–57 times a second
+  while you drag, and edits are applied once per display frame. A look LUT bake takes about 15 ms (2 ms on the
+  33³ draft grid used while dragging Intensity or Fade). Export runs at about 55 fps for UHD ProRes.
 
 ## Research notes
 

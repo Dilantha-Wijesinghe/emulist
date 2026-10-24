@@ -1,26 +1,26 @@
 import EmulistCore
 import SwiftUI
 
-/// Shown before any footage is open: a drop target, or a relink prompt when a project's media is missing.
+/// Shown before any footage is open (a drop target), or when the selected clip's footage is missing.
 struct EmptyStateView: View {
     @Bindable var workspace: Workspace
     let isTargeted: Bool
 
     var body: some View {
         VStack(spacing: 18) {
-            if let missing = workspace.missingMedia {
+            if let missing = workspace.selectedClip {
                 Image(systemName: "questionmark.folder")
                     .font(.system(size: 40, weight: .thin))
                     .foregroundStyle(Theme.accent)
                 VStack(spacing: 6) {
                     Text("Footage not found").font(.system(size: 18, weight: .semibold))
-                    Text("“\(URL(fileURLWithPath: missing.media.path).lastPathComponent)” was moved or deleted.\nYour grade is safe — locate the file to continue.")
+                    Text("“\(missing.reference.url.lastPathComponent)” was moved or deleted.\nIts grade is safe — locate the file to continue.")
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Theme.secondaryText)
                 }
                 HStack {
-                    Button("Close Project") { workspace.closeMissingMedia() }
-                    Button("Locate Footage…") { workspace.relinkMissingMedia() }.keyboardShortcut(.defaultAction)
+                    Button("Remove Clip") { workspace.removeClip(missing.id) }
+                    Button("Locate Footage…") { workspace.relinkSelectedClip() }.keyboardShortcut(.defaultAction)
                 }
             } else {
                 ZStack {
