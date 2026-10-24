@@ -219,8 +219,8 @@ struct ExportSheet: View {
                     ForEach(job.items.indices, id: \.self) { index in
                         row(job.items[index].destination.lastPathComponent, outcome: job.outcomes[index])
                     }
-                    ForEach(job.skipped, id: \.self) { name in
-                        summaryRow(name, detail: "Footage missing, skipped", systemImage: "questionmark.folder")
+                    ForEach(job.skipped.indices, id: \.self) { index in
+                        summaryRow(job.skipped[index], detail: "Footage missing, skipped", systemImage: "questionmark.folder")
                     }
                 }
             }
