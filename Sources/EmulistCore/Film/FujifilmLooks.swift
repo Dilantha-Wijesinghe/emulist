@@ -72,6 +72,12 @@ public enum FujifilmLooks {
         return simulations.first { rest.hasPrefix($0.key + "_") || rest == $0.key }
     }
 
+    /// The simulation a Fujifilm look renders (nil for any other look).
+    public static func simulationKey(of look: FilmStock) -> String? {
+        guard look.collection == collection, let lut = look.lut else { return nil }
+        return simulation(forFileName: lut.url.deletingPathExtension().lastPathComponent)?.key
+    }
+
     static func order(of look: FilmStock) -> Int {
         simulations.firstIndex { $0.name == look.name && look.collection == collection } ?? simulations.count
     }

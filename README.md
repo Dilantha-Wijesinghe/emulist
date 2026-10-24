@@ -110,6 +110,28 @@ applied around it. Only colors at the very edge of F-Gamut, or pushed beyond it 
 softly back inside, so the LUT never clips them flat. Intensity blends the simulation with Emulist's neutral print. Extreme saturation on
 an already-vivid look (e.g. Velvia at 200%) can still clip inside Fujifilm's LUT.
 
+### Fuji X Weekly recipes
+
+With the Fujifilm simulations installed, a **Fuji X Weekly Recipes** collection appears below them: 14 popular
+in-camera recipes from [fujixweekly.com](https://fujixweekly.com) (Kodak Gold 200, Portra 400 v2, CineStill 800T,
+Kodak Tri-X 400 and more), each on its Fujifilm simulation. Click one to apply it; right-click for its recipe page.
+A recipe sets the look, primaries, printer lights and grain, and never the clip's own exposure or white balance.
+They're approximations, since recipes are tuned for in-camera JPEGs:
+
+| Fujifilm setting | Emulist |
+|---|---|
+| WB shift R / B | Cyan·Red / Yel·Blue, 6 per step |
+| Highlight | Highlights, +15 per step |
+| Shadow | Shadows, −15 per step (on Fujifilm, + darkens shadows) |
+| Color | Saturation, 100 % + 8 % per step |
+| Color Chrome Effect Weak / Strong | Density 25 / 50 |
+| Grain Weak / Strong, Small / Large | Amount 20 / 40, Size 25 / 55 (Off turns grain off) |
+| DR200 / DR400 (D-Range Priority Strong) | Highlights −10 / −20 (−20 and Shadows +15) |
+
+Clarity and Color Chrome FX Blue aren't modeled yet; a recipe's tooltip lists them when it uses them. Recipes are
+data (`FujiXWeeklyRecipes.swift`), so adding one is a new entry. `emulist-cli render … --recipe "<name>"` renders
+one, and `sheet --collection Fuji` renders the simulations and recipes together.
+
 ### Your own LUTs
 
 Import any 3D `.cube` LUT with **+** in the library, or drop it on the window. Emulist reads the LUT's expected

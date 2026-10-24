@@ -64,6 +64,7 @@ struct LookLibraryView: View {
                                 .equatable()
                             }
                         }
+                        if collection.name == FujifilmLooks.collection && !workspace.recipes.isEmpty { recipes }
                     }
                     if !workspace.hasFujifilmLooks { FujifilmOffer(workspace: workspace) }
                 }
@@ -81,6 +82,33 @@ struct LookLibraryView: View {
                 if let renaming, !name.isEmpty { workspace.rename(renaming, to: name) }
             }
         }
+    }
+
+    /// Recipes on Fujifilm's simulations, right after them.
+    private var recipes: some View {
+        section(FilmRecipe.fujiXWeeklyCollection, count: workspace.recipes.count) {
+            ForEach(workspace.recipes) { look in
+                LookTile(name: look.recipe.name, help: help(look),
+                         image: workspace.thumbnails.images[LibraryThumbnails.id(for: look.preset)], isSelected: false) {
+                    workspace.apply(look.preset)
+                }
+                .equatable()
+                .contextMenu {
+                    Button("Apply") { workspace.apply(look.preset) }
+                    Button("Open Recipe Page") { NSWorkspace.shared.open(look.recipe.url) }
+                }
+            }
+        }
+    }
+
+    private func help(_ look: RecipeLook) -> String {
+        let ignored = look.recipe.ignoredSettings
+        return """
+            \(look.recipe.name) · on \(look.preset.settings.stock.name)
+            A Fuji X Weekly recipe, approximated: its white balance shift becomes printer lights, and its tone, \
+            color, Color Chrome and grain become Emulist’s controls. Your clip’s exposure and white balance stay.
+            \(ignored.isEmpty ? "" : "Not applied yet: \(ignored.joined(separator: ", ")).\n")Right-click for the recipe page.
+            """
     }
 
     private func section<Tiles: View>(_ title: String, count: Int, @ViewBuilder tiles: () -> Tiles) -> some View {

@@ -42,6 +42,18 @@ struct LookDraft: Identifiable {
     let settings: GradeSettings
 }
 
+/// A film recipe ready to apply: its source and the look it becomes.
+struct RecipeLook: Identifiable {
+    let recipe: FilmRecipe
+    let preset: GradePreset
+    var id: UUID { preset.id }
+
+    /// The Fuji X Weekly recipes whose film simulation is among `looks`.
+    static func fujiXWeekly(in looks: [FilmStock]) -> [RecipeLook] {
+        FilmRecipe.fujiXWeekly.compactMap { recipe in recipe.preset(in: looks).map { RecipeLook(recipe: recipe, preset: $0) } }
+    }
+}
+
 /// The single source of truth for the session: its clips, the selected clip's grade, saved looks and
 /// the app's modes.
 @MainActor @Observable
@@ -73,6 +85,8 @@ final class Workspace {
     /// Every look in the library (built-in stocks and installed LUTs).
     private(set) var looks = LookLibrary.shared.all
     private(set) var presets = PresetStore.standard.load()
+    /// Built-in recipe looks; empty until the Fujifilm simulations they build on are installed.
+    private(set) var recipes = RecipeLook.fujiXWeekly(in: LookLibrary.shared.all)
     private(set) var isInstallingFujifilm = false
     /// A grade copied with Copy Grade, waiting to be pasted.
     private(set) var copiedGrade: GradeSettings?
@@ -329,11 +343,12 @@ final class Workspace {
 
     private func reloadLooks() {
         looks = LookLibrary.shared.all
+        recipes = RecipeLook.fujiXWeekly(in: looks)
         refreshLibraryThumbnails()
     }
 
     private func refreshLibraryThumbnails() {
-        thumbnails.update(settings: settings, looks: looks, presets: presets)
+        thumbnails.update(settings: settings, looks: looks, presets: presets + recipes.map(\.preset))
     }
 
     // MARK: Opening

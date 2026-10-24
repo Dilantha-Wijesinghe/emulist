@@ -18,7 +18,7 @@ import simd
 //   emulist-cli install-fujifilm [folder]             Install Fujifilm's film simulation LUTs (download, or from an unzipped folder)
 //   emulist-cli looks                                 List every look in the library
 //
-// Options: --time <seconds> --stock <id> --scale <0-1> --split <0-1> --settings <grade.json>
+// Options: --time <seconds> --stock <id> --recipe <name> --scale <0-1> --split <0-1> --settings <grade.json>
 //          --codec <prores|hevc|h264> --clean 1 (no grain/halation/bloom) --collection <name> (sheet)
 //          Any other --<setting> <number> overrides that grade setting, e.g. --colorBoost 40 --lift.x 0.3
 
@@ -44,6 +44,12 @@ struct Arguments {
             guard let stock = FilmStock.with(id: id) else { throw CLIError.usage("Unknown look \(id)") }
             settings.select(stock)
         }
+        if let name = options["recipe"] {
+            guard let recipe = FilmRecipe.fujiXWeekly.first(where: { $0.name == name }),
+                  let preset = recipe.preset(in: LookLibrary.shared.all)
+            else { throw CLIError.usage("Unknown recipe \(name), or its Fujifilm simulation isn’t installed") }
+            settings = preset.applied(to: settings)
+        }
         settings = try overriding(settings)
         if options["clean"] != nil {
             settings.grain.enabled = false
@@ -53,7 +59,7 @@ struct Arguments {
         return settings
     }
 
-    static let reserved: Set = ["settings", "stock", "time", "scale", "split", "codec", "clean", "collection", "columns"]
+    static let reserved: Set = ["settings", "stock", "recipe", "time", "scale", "split", "codec", "clean", "collection", "columns"]
 
     /// Applies numeric `--key value` options to the settings' JSON (dotted keys reach nested values).
     func overriding(_ settings: GradeSettings) throws -> GradeSettings {
@@ -337,6 +343,9 @@ do {
             settings.select(stock)
             looks.append(settings)
         }
+        if args.options["collection"].map(FilmRecipe.fujiXWeeklyCollection.hasPrefix) ?? true {
+            looks += FilmRecipe.fujiXWeekly.compactMap { $0.preset(in: LookLibrary.shared.all)?.applied(to: base) }
+        }
         let images = try await renderFrame(
             paths[0], at: args.double("time") ?? 0, settings: looks, scale: args.double("scale") ?? 0.5, split: 0)
         try writePNG(contactSheet(images, columns: Int(args.double("columns") ?? 4)), to: paths[1])
@@ -403,6 +412,7 @@ do {
         fallthrough
     case "looks":
         for look in LookLibrary.shared.all { print("\(look.collection) · \(look.name)  [\(look.id)]") }
+        for recipe in FilmRecipe.fujiXWeekly { print("\(FilmRecipe.fujiXWeeklyCollection) · \(recipe.name)  [--recipe \"\(recipe.name)\"]") }
     case "tag-apple-log":
         guard paths.count == 2 else { throw CLIError.usage("tag-apple-log <clip> <out.mov>") }
         try await tagAppleLog(paths[0], to: paths[1])
