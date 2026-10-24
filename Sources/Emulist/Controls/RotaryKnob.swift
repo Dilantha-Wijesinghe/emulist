@@ -9,6 +9,8 @@ struct RotaryKnob: View, Equatable {
     let defaultValue: Double
     var isEnabled = true
     var size: CGFloat = 34
+    /// Off where a grid's row and column headers name the knob (its tooltip still does).
+    var showsLabel = true
     let actions: EditActions
 
     @State private var session = AdjustSession()
@@ -29,13 +31,15 @@ struct RotaryKnob: View, Equatable {
                 .scrollAdjust(isEnabled: isEnabled, onBegin: begin, onEnd: { session.end(actions) }) { travel, fine in
                     session.move(travel * 0.6, fine: fine, actions)
                 }
-            Text(spec.label.uppercased())
-                .font(.system(size: 8.5, weight: .semibold)).tracking(0.4)
-                .foregroundStyle(Theme.secondaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                // Narrower than the knob, so long neighbouring labels never touch.
-                .frame(maxWidth: 56)
+            if showsLabel {
+                Text(spec.label.uppercased())
+                    .font(.system(size: 8.5, weight: .semibold)).tracking(0.4)
+                    .foregroundStyle(Theme.secondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    // Narrower than the knob, so long neighbouring labels never touch.
+                    .frame(maxWidth: 56)
+            }
             ValueField(text: spec.format.string(value), color: isModified ? Theme.accent : Theme.secondaryText,
                        isEnabled: isEnabled) { text in
                 guard let typed = text.typedNumber else { return }
@@ -43,7 +47,7 @@ struct RotaryKnob: View, Equatable {
             }
             .frame(width: 52)
         }
-        .frame(width: 62)
+        .frame(width: size + 28)
         .opacity(isEnabled ? 1 : 0.4)
         .help("\(spec.label): drag or scroll · ⌥ for fine control · double-click to reset")
     }
@@ -53,7 +57,7 @@ struct RotaryKnob: View, Equatable {
     /// What the knob shows; its actions are stable for a given parameter, so they don't count.
     nonisolated static func == (a: RotaryKnob, b: RotaryKnob) -> Bool {
         a.spec.keyPath == b.spec.keyPath && a.value == b.value && a.defaultValue == b.defaultValue
-            && a.isEnabled == b.isEnabled && a.size == b.size
+            && a.isEnabled == b.isEnabled && a.size == b.size && a.showsLabel == b.showsLabel
     }
 
     /// Bipolar controls (default in the middle) light the arc from the center; others from the minimum.

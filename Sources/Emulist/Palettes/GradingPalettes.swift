@@ -70,10 +70,13 @@ struct ParameterKnob: View {
     let spec: ParameterSpec
     let defaults: GradeSettings
     @Bindable var workspace: Workspace
+    var size: CGFloat = 34
+    var showsLabel = true
 
     var body: some View {
         RotaryKnob(
             spec: spec, value: workspace.settings[keyPath: spec.keyPath], defaultValue: defaults[keyPath: spec.keyPath],
+            size: size, showsLabel: showsLabel,
             actions: EditActions(
                 begin: { workspace.beginContinuousEdit() },
                 change: { value in workspace.continuousEdit { $0[keyPath: spec.keyPath] = value } },
@@ -86,31 +89,42 @@ struct ParameterKnob: View {
 // MARK: Primaries
 
 struct PrimariesPalette: View {
+    enum Page: String, CaseIterable, Identifiable {
+        case wheels, hue
+        var id: String { rawValue }
+    }
+
     @Bindable var workspace: Workspace
+    @State private var page = Page.wheels
 
     var body: some View {
         let defaults = workspace.settings.defaults
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("PRIMARIES · WHEELS").captionStyle()
-                Spacer()
-                Button("Reset Primaries") { workspace.resetPrimaries() }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Theme.secondaryText)
-                    .help("Reset the wheels and adjustments below them")
-            }
-            HStack(alignment: .top, spacing: 18) {
-                ForEach(ColorWheel.Kind.allCases) { kind in
-                    ColorWheelView(
-                        kind: kind, wheel: workspace.settings[wheel: kind],
-                        begin: { workspace.beginContinuousEdit() },
-                        change: { wheel in workspace.continuousEdit { $0[wheel: kind] = wheel } },
-                        end: { workspace.endContinuousEdit() })
-                    .equatable()
+                Text("PRIMARIES").captionStyle()
+                Picker("Page", selection: $page) {
+                    Text("Wheels").tag(Page.wheels)
+                    Text("Hue").tag(Page.hue)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.mini)
+                .fixedSize()
+                .help("Wheels, or hue-selective color: six vectors that turn, saturate or deepen one range of hues")
+                Spacer()
+                Button(page == .wheels ? "Reset Primaries" : "Reset Hue") {
+                    page == .wheels ? workspace.resetPrimaries() : workspace.edit { $0.hueVectors = HueVectors() }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Theme.secondaryText)
+                .help(page == .wheels ? "Reset the wheels and adjustments below them" : "Reset every hue vector and Protect Skin")
             }
-            .padding(.horizontal, 4)
+            // Both pages are always laid out, so switching never changes the panel's size.
+            ZStack(alignment: .topLeading) {
+                wheels.page(isShown: page == .wheels)
+                HueVectorsPage(workspace: workspace, defaults: defaults).page(isShown: page == .hue)
+            }
             HStack(alignment: .top, spacing: 2) {
                 ForEach(Controls.primaries) { ParameterKnob(spec: $0, defaults: defaults, workspace: workspace) }
                 Rectangle().fill(Theme.separator).frame(width: 1, height: 64).padding(.horizontal, 4)
@@ -119,6 +133,63 @@ struct PrimariesPalette: View {
         }
         .padding(12)
         .moduleBackground(cornerRadius: 9)
+    }
+
+    private var wheels: some View {
+        HStack(alignment: .top, spacing: 18) {
+            ForEach(ColorWheel.Kind.allCases) { kind in
+                ColorWheelView(
+                    kind: kind, wheel: workspace.settings[wheel: kind],
+                    begin: { workspace.beginContinuousEdit() },
+                    change: { wheel in workspace.continuousEdit { $0[wheel: kind] = wheel } },
+                    end: { workspace.endContinuousEdit() })
+                .equatable()
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+}
+
+/// Six hue vectors in columns (Hue, Saturation, Density), with Protect Skin beside them. Like the look's
+/// own controls they rebake the look, so a drag previews on the coarser grid.
+private struct HueVectorsPage: View {
+    @Bindable var workspace: Workspace
+    let defaults: GradeSettings
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
+                    ForEach(Controls.hueVectors, id: \.vector) { column in
+                        HStack(spacing: 4) {
+                            Circle().fill(column.vector.color).frame(width: 7, height: 7)
+                            Text(column.vector.name.uppercased()).captionStyle()
+                        }
+                        .padding(.bottom, 2)
+                    }
+                }
+                ForEach(0..<3) { row in
+                    GridRow {
+                        Text(["HUE", "SAT", "DENSITY"][row]).captionStyle().gridColumnAlignment(.trailing)
+                        ForEach(Controls.hueVectors, id: \.vector) { column in
+                            ParameterKnob(spec: column.parameters[row], defaults: defaults, workspace: workspace,
+                                          size: 24, showsLabel: false)
+                        }
+                    }
+                }
+            }
+            Rectangle().fill(Theme.separator).frame(width: 1, height: 150).padding(.top, 14)
+            ParameterKnob(spec: Controls.protectSkin, defaults: defaults, workspace: workspace)
+                .padding(.top, 14)
+        }
+    }
+}
+
+private extension View {
+    /// One of the pages stacked in a palette: laid out always, seen and reachable only when shown.
+    func page(isShown: Bool) -> some View {
+        opacity(isShown ? 1 : 0).allowsHitTesting(isShown).accessibilityHidden(!isShown)
     }
 }
 

@@ -12,6 +12,9 @@ import simd
         s.select(FilmStock.builtIn[1])
         s.intensity = 80
         s.fade = 20
+        s.hueVectors.blue = .init(hue: 20, saturation: 15, density: 40)
+        s.hueVectors.red.hue = -15
+        s.hueVectors.protectSkin = 50
         s.output = .rec709Gamma24
         s.grain.enabled = false
         s.halation.enabled = false

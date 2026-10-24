@@ -32,8 +32,9 @@ public struct FilmRecipe: Sendable, Identifiable {
     public var grain = Strength.off
     public var grainSize = GrainSize.small
     public var dynamicRange = DynamicRange.auto
-    /// Settings Emulist doesn't model yet; kept so the library can say they're left out.
+    /// Color Chrome FX Blue: deeper blues only.
     public var colorChromeFXBlue = Strength.off
+    /// Not modeled yet; kept so the library can say it's left out.
     public var clarity = 0
 
     public var id: UUID {
@@ -56,6 +57,7 @@ public struct FilmRecipe: Sendable, Identifiable {
         settings.shadows = -shadow * 15 + dynamicRange.shadows
         settings.saturation = 100 + Double(color) * 8
         settings.density = colorChrome.density
+        settings.hueVectors.blue.density = colorChromeFXBlue.density
         settings.grain.enabled = grain != .off
         if grain != .off {
             settings.grain.amount = grain == .strong ? 40 : 20
@@ -75,7 +77,6 @@ public struct FilmRecipe: Sendable, Identifiable {
     /// What the recipe sets that Emulist leaves out for now.
     public var ignoredSettings: [String] {
         var ignored: [String] = []
-        if colorChromeFXBlue != .off { ignored.append("Color Chrome FX Blue \(colorChromeFXBlue.name)") }
         if clarity != 0 { ignored.append("Clarity \(clarity > 0 ? "+" : "")\(clarity)") }
         return ignored
     }
@@ -90,7 +91,8 @@ extension FilmRecipe.Strength {
         }
     }
 
-    /// Color Chrome Effect deepens saturated colors without adding saturation: Emulist's Density.
+    /// Color Chrome Effect deepens saturated colors without adding saturation: Emulist's Density (and,
+    /// for FX Blue, the blue vector's density).
     var density: Double {
         switch self {
         case .off: 0

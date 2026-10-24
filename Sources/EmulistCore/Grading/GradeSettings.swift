@@ -21,6 +21,8 @@ public struct GradeSettings: Codable, Equatable, Sendable {
     public var density = 0.0
     public var shadows = 0.0
     public var highlights = 0.0
+    /// Hue-selective color (baked into the look, after the primaries).
+    public var hueVectors = HueVectors()
 
     // Film
     public var stockID = FilmStock.builtIn[0].id
@@ -84,7 +86,7 @@ public struct GradeSettings: Codable, Equatable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case cameraProfileID, exposure, temperature, tint
-        case lift, gamma, gain, offset, contrast, pivot, saturation, colorBoost, density, shadows, highlights
+        case lift, gamma, gain, offset, contrast, pivot, saturation, colorBoost, density, shadows, highlights, hueVectors
         case stockID, intensity, push, fade, cyanRed, magentaGreen, yellowBlue
         case grain, halation, bloom, output
     }
@@ -110,6 +112,7 @@ public struct GradeSettings: Codable, Equatable, Sendable {
         try read(.density, into: &density)
         try read(.shadows, into: &shadows)
         try read(.highlights, into: &highlights)
+        try read(.hueVectors, into: &hueVectors)
         try read(.stockID, into: &stockID)
         try read(.intensity, into: &intensity)
         try read(.push, into: &push)

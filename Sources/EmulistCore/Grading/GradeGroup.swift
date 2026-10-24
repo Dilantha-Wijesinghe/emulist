@@ -48,6 +48,7 @@ extension GradeSettings {
             density = s.density
             shadows = s.shadows
             highlights = s.highlights
+            hueVectors = s.hueVectors
         case .look:
             stockID = s.stockID
             intensity = s.intensity

@@ -82,11 +82,19 @@ import Testing
         #expect(a?.groups == FilmRecipe.groups)
     }
 
+    @Test func fxBlueDeepensOnlyBlues() {
+        var recipe = Self.recipe
+        recipe.colorChromeFXBlue = .strong
+        let vectors = recipe.settings(on: Self.classicChrome).hueVectors
+        #expect(vectors.blue == HueVectors.Adjustment(density: 50))
+        #expect(HueVectors.Vector.allCases.filter { $0 != .blue }.allSatisfy { vectors[$0].isNeutral })
+    }
+
     @Test func ignoredSettingsAreNamed() {
         var recipe = Self.recipe
         #expect(recipe.ignoredSettings.isEmpty)
         recipe.clarity = -3
         recipe.colorChromeFXBlue = .weak
-        #expect(recipe.ignoredSettings == ["Color Chrome FX Blue Weak", "Clarity -3"])
+        #expect(recipe.ignoredSettings == ["Clarity -3"])
     }
 }

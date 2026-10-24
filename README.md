@@ -34,6 +34,11 @@ along the bottom.
    - **Contrast & Pivot, Saturation, Color Boost** (lifts muted colors, spares already-vivid ones), **Density**
      (subtractive saturation: colors get deeper and richer, like denser dye; neutrals untouched), **Shadows**,
      **Highlights**, plus **Exposure, Temp, Tint** (applied as light, before everything).
+   - **Hue** (the switch next to PRIMARIES swaps it in for the wheels): six vectors, red, yellow, green, cyan,
+     blue and magenta, each with **Hue** (turns those colors toward the neighboring vector, up to 30°),
+     **Sat** and **Density** (deeper color for that hue only), like Resolve's ColorSlice. Hues between two
+     vectors blend smoothly, neutrals and luminance never change, and **Protect Skin** spares skin tones.
+     They're baked into the look, so a drag previews on the coarser LUT like Intensity does.
 4. **Shape the film** in the rack (bottom right): intensity, push/pull and fade; printer lights; grain, halation
    and bloom, each with its own power switch.
 5. **Compare** with the two toolbar buttons: **Before / After** latches the ungraded image on and off (`B`), and **Split** shows a wipe you can drag (`⇧B`).
@@ -117,8 +122,9 @@ They land in `~/Library/Application Support/Emulist/Looks/Fujifilm` and are neve
 Your footage reaches them through a colorimetric bridge: camera LOG → scene-linear Rec.2020 (= F-Gamut) → F-Log2.
 Each simulation then renders as Fujifilm designed it, with the primaries, grain, halation and bloom still
 applied around it. Only colors at the very edge of F-Gamut, or pushed beyond it by the grade, are first rolled
-softly back inside, so the LUT never clips them flat. Intensity blends the simulation with Emulist's neutral print. Extreme saturation on
-an already-vivid look (e.g. Velvia at 200%) can still clip inside Fujifilm's LUT.
+softly back inside, so the LUT never clips them flat. Intensity blends the simulation with Emulist's neutral print. Very high
+saturation on an already-vivid look (e.g. Velvia at 200%) makes blotches appear in skies and flat walls: those are
+the camera codec's chroma blocks in the footage, faint at 100% and amplified by saturation, not clipping.
 
 ### Fuji X Weekly recipes
 
@@ -135,10 +141,11 @@ They're approximations, since recipes are tuned for in-camera JPEGs:
 | Shadow | Shadows, −15 per step (on Fujifilm, + darkens shadows) |
 | Color | Saturation, 100 % + 8 % per step |
 | Color Chrome Effect Weak / Strong | Density 25 / 50 |
+| Color Chrome FX Blue Weak / Strong | Blue vector Density 25 / 50 |
 | Grain Weak / Strong, Small / Large | Amount 20 / 40, Size 25 / 55 (Off turns grain off) |
 | DR200 / DR400 (D-Range Priority Strong) | Highlights −10 / −20 (−20 and Shadows +15) |
 
-Clarity and Color Chrome FX Blue aren't modeled yet; a recipe's tooltip lists them when it uses them. Recipes are
+Clarity isn't modeled yet; a recipe's tooltip says so when it uses it. Recipes are
 data (`FujiXWeeklyRecipes.swift`), so adding one is a new entry. `emulist-cli render … --recipe "<name>"` renders
 one, and `sheet --collection Fuji` renders the simulations and recipes together.
 
@@ -171,6 +178,7 @@ decode (10-bit Y'CbCr, no OS color conversion)
   → grain, as noise in log exposure (density), deterministic per frame
   → primary grade, on the GPU (log: wheels, contrast, color, push, printer lights)
   → look LUT (65³, baked in Swift; 33³ while a look control is dragged):
+      hue vectors (log chroma, by hue) →
       film (negative → print → gamut map)  or  external LUT (via its camera encoding)
       → fade → encode
   → scopes, when shown: one GPU pass bins the displayed frame, each scope is drawn from the bins
@@ -198,9 +206,9 @@ decode (10-bit Y'CbCr, no OS color conversion)
   grain canvas never drops below 1080 lines; smaller previews sample a filtered mip level. Preview and
   full-resolution export therefore match.
 - **Performance** (M3 Pro). The full UHD pipeline with every effect takes about 13 ms per frame. Half
-  resolution takes about 3 ms. Dragging a knob or wheel never rebakes; the viewer redraws about 46–56 times a
+  resolution takes about 3 ms. Dragging a primaries knob or wheel never rebakes; the viewer redraws about 46–56 times a
   second while you drag a UHD clip, and edits are applied once per display frame. A look LUT bake takes about 15 ms (2 ms on the
-  33³ draft grid used while dragging Intensity or Fade). Export runs at about 55 fps for UHD ProRes.
+  33³ draft grid used while dragging Intensity, Fade or a hue vector; about 32–44 redraws a second). Export runs at about 55 fps for UHD ProRes.
 
 ## Research notes
 

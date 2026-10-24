@@ -26,6 +26,11 @@ struct ParameterSpec: Identifiable, Sendable {
     var id: String { label }
 }
 
+extension HueVectors.Vector {
+    /// The vector's hue, toned down to sit with the panel.
+    var color: Color { Color(.sRGB, red: 0.25 + rgb.x * 0.7, green: 0.25 + rgb.y * 0.65, blue: 0.3 + rgb.z * 0.7) }
+}
+
 /// A group of knobs that reads as one hardware module, optionally with a power switch.
 struct ModuleSpec: Identifiable {
     let title: String
@@ -86,6 +91,19 @@ enum Controls {
         .init(label: "Warmth", keyPath: \.halation.warmth, range: 0...100,
               gradient: [Color(red: 0.85, green: 0.12, blue: 0.1), Color(red: 1, green: 0.6, blue: 0.15)]),
     ])
+
+    /// One column per hue vector: its Hue, Saturation and Density.
+    static let hueVectors: [(vector: HueVectors.Vector, parameters: [ParameterSpec])] = HueVectors.Vector.allCases.map { v in
+        (v, [
+            .init(label: "\(v.name) Hue", keyPath: \.hueVectors[v].hue, range: -100...100, format: .signed,
+                  gradient: [v.previous.color, v.color, v.next.color]),
+            .init(label: "\(v.name) Saturation", keyPath: \.hueVectors[v].saturation, range: -100...100, format: .signed,
+                  gradient: [Color(white: 0.45), Color(white: 0.7), v.color]),
+            .init(label: "\(v.name) Density", keyPath: \.hueVectors[v].density, range: 0...100),
+        ])
+    }
+
+    static let protectSkin = ParameterSpec(label: "Protect Skin", keyPath: \.hueVectors.protectSkin, range: 0...100)
 
     static let bloom = ModuleSpec(title: "BLOOM", toggle: \.bloom.enabled, parameters: [
         .init(label: "Amount", keyPath: \.bloom.amount, range: 0...100),

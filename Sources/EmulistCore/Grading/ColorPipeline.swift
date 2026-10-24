@@ -1,11 +1,12 @@
 import Foundation
 import simd
 
-/// The color path from log exposure to display, as a value: primary grade → look → fade → output encoding.
-/// It is `Hashable`, so it doubles as the cache key for baked LUTs.
+/// The color path from log exposure to display, as a value: primary grade → hue vectors → look → fade →
+/// output encoding. It is `Hashable`, so it doubles as the cache key for baked LUTs.
 ///
-/// The renderer bakes `look(_:)` (no primary grade) and applies the grade on the GPU before the LUT, so
-/// grading never rebakes. The full pipeline renders on the CPU, e.g. for tests and baking a whole grade.
+/// The renderer bakes `look(_:)` (everything but the primary grade) and applies the grade on the GPU before
+/// the LUT, so the primaries never rebake; the hue vectors, like the look's own controls, do. The full
+/// pipeline renders on the CPU, e.g. for tests and baking a whole grade.
 public struct ColorPipeline: Hashable, Sendable {
     public enum Look: Hashable, Sendable {
         /// Emulist's negative + print model (intensity is already blended into the response).
@@ -15,6 +16,7 @@ public struct ColorPipeline: Hashable, Sendable {
     }
 
     public var grade: PrimaryGrade
+    public var hueVectors: HueVectors
     public var look: Look
     /// 0…1: lifts the print black like a matte print.
     public var fade: Double
@@ -22,6 +24,7 @@ public struct ColorPipeline: Hashable, Sendable {
 
     public init(_ settings: GradeSettings) {
         grade = PrimaryGrade(settings)
+        hueVectors = settings.hueVectors
         let stock = settings.stock
         look = stock.lut.map { .lut($0, intensity: settings.intensity / 100) } ?? .film(FilmResponse(for: settings))
         fade = settings.fade / 100
@@ -54,8 +57,8 @@ public struct ColorPipeline: Hashable, Sendable {
                 toInput: WorkingSpace.primaries.conversion(to: profile.primaries), intensity: intensity)
         }()
         let response: FilmResponse = if case .film(let response) = look { response } else { .neutral }
-        return Renderer(grade: grade, film: FilmModel(response: response, output: output), lut: lut,
-                        fade: fade, output: output)
+        return Renderer(grade: grade, hueVectors: hueVectors.isNeutral ? nil : hueVectors,
+                        film: FilmModel(response: response, output: output), lut: lut, fade: fade, output: output)
     }
 
     public struct Renderer: Sendable {
@@ -74,6 +77,7 @@ public struct ColorPipeline: Hashable, Sendable {
         }
 
         let grade: PrimaryGrade
+        let hueVectors: HueVectors?
         let film: FilmModel
         let lut: LUTStage?
         let fade: Double
@@ -83,6 +87,7 @@ public struct ColorPipeline: Hashable, Sendable {
         public func render(_ scene: RGB) -> RGB {
             var stops = WorkingSpace.stops(scene)
             if !grade.isIdentity { stops = grade.apply(stops) }
+            if let hueVectors { stops = hueVectors.apply(stops) }
             var light: RGB
             if let lut {
                 light = lut.displayLinear(stops: stops)

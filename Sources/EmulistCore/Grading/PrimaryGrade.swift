@@ -140,14 +140,14 @@ public struct PrimaryGrade: Hashable, Sendable {
         let spread = e.max() - e.min()
         let boost = 1 + colorBoost * Self.boostScale / (1 + spread * spread)
         e = RGB(repeating: mean) + chroma * (saturation * boost)
-        if density > 0 {
-            // Subtractive, like denser dye: the weaker channels fall most, the whole color darkens with
-            // its saturation, and neutrals (no spread) are untouched.
-            let spread = e.max() - e.min()
-            e += (e - RGB(repeating: e.max())) * (density * Self.densityDepth)
-                - RGB(repeating: density * Self.densityDarkening * spread)
-        }
-        return e
+        return density > 0 ? Self.deepen(e, by: density) : e
+    }
+
+    /// Subtractive saturation (0…1), like denser dye: the weaker channels fall most, the whole color darkens
+    /// with its saturation, and neutrals (no spread) are untouched.
+    static func deepen(_ e: RGB, by density: Double) -> RGB {
+        let spread = e.max() - e.min()
+        return e + (e - RGB(repeating: e.max())) * (density * densityDepth) - RGB(repeating: density * densityDarkening * spread)
     }
 
     /// Gamma on normalized log: a power curve between black and white, continued linearly outside.
