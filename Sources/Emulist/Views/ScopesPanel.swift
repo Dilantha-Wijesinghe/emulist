@@ -69,8 +69,14 @@ final class ScopeDisplays {
         guard let renderer else { return }
         renderer.analyze(image, into: commandBuffer)
         for (kind, entry) in views {
-            guard let view = entry.view, view.window != nil, let pass = view.currentRenderPassDescriptor,
-                  let drawable = view.currentDrawable else { continue }
+            // A fresh drawable each time, straight from the layer: MTKView's `currentDrawable` is only renewed
+            // by the view's own draw(), which never runs here, so it would hand back one already on screen.
+            guard let view = entry.view, view.window != nil, let layer = view.layer as? CAMetalLayer,
+                  let drawable = layer.nextDrawable() else { continue }
+            let pass = MTLRenderPassDescriptor()
+            pass.colorAttachments[0].texture = drawable.texture
+            pass.colorAttachments[0].loadAction = .dontCare
+            pass.colorAttachments[0].storeAction = .store
             let size = (drawable.texture.width, drawable.texture.height)
             let scope = try renderer.draw(kind, width: size.0, height: size.1, into: commandBuffer)
             renderer.context.present(scope, in: CGRect(x: 0, y: 0, width: size.0, height: size.1), pass: pass,
@@ -170,3 +176,4 @@ private struct VectorscopeGraticule: View {
         .allowsHitTesting(false)
     }
 }
+
