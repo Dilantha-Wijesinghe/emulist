@@ -38,6 +38,21 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         var scale: Double
         var draft: Bool
         var drawableSize: CGSize
+        var reference: Reference?
+    }
+
+    /// What the left of a wipe against another clip shows.
+    private struct Reference: Equatable {
+        var clipID: UUID
+        var settings: GradeSettings
+        var split: Double
+    }
+
+    /// What the cached reference render depends on.
+    private struct ReferenceKey: Equatable {
+        var clipID: UUID
+        var settings: GradeSettings
+        var height: Int
     }
 
     let renderer: FrameRenderer?
@@ -50,6 +65,13 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
     private var wasPlaying = false
     private var displayLink: CADisplayLink?
     private weak var view: MTKView?
+
+    // A wipe against another clip: its frame (the clip strip's, decoded once), a renderer of its own (the
+    // viewer's reuses its output texture every frame) and its last render, redone only when it changes.
+    private var referenceFrame: (clipID: UUID, frame: ThumbnailRenderer.Frame)?
+    private var loadingReferenceID: UUID?
+    private lazy var referenceRenderer = renderer.map { FrameRenderer(context: $0.context, lutCacheCapacity: 2) }
+    private var referenceImage: (key: ReferenceKey, texture: MTLTexture)?
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -112,7 +134,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         let state = RenderState(
             frame: frameSerial, settings: settings, beforeSplit: workspace.beforeSplit,
             scale: workspace.quality.scale(shortSide: min(media.width, media.height)), draft: workspace.isContinuousEdit,
-            drawableSize: view.drawableSize)
+            drawableSize: view.drawableSize,
+            reference: workspace.referenceClip.map { Reference(clipID: $0.id, settings: $0.settings, split: workspace.splitPosition) })
         guard state != lastState else { return }
 
         let colorSpace = settings.output.colorSpace
@@ -121,11 +144,15 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         guard let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
               let commandBuffer = renderer.context.queue.makeCommandBuffer() else { return }
         do {
-            let image = try renderer.encode(
+            var image = try renderer.encode(
                 frame.buffer, frameIndex: frame.frameIndex, settings: settings,
                 options: .init(scale: state.scale, beforeSplit: state.beforeSplit, orientation: media.transform,
                                draft: state.draft),
                 into: commandBuffer)
+            if let reference = state.reference,
+               let referenceTexture = try referenceTexture(reference, height: image.height, into: commandBuffer) {
+                image = try renderer.wipe(image, reference: referenceTexture, split: reference.split, into: commandBuffer)
+            }
             let rect = aspectFitRect(content: CGSize(width: image.width, height: image.height), in: view.drawableSize)
             renderer.present(image, in: rect, pass: pass, into: commandBuffer)
             commandBuffer.present(drawable)
@@ -135,6 +162,39 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
             workspace.alert = AppAlert(title: "Rendering failed", message: error.localizedDescription)
         }
         commandBuffer.commit()
+    }
+}
+
+extension ViewerCoordinator {
+    /// The reference clip's graded frame, about as tall as the viewer's image. Nil until its frame is decoded.
+    private func referenceTexture(_ reference: Reference, height: Int,
+                                  into commandBuffer: MTLCommandBuffer) throws -> MTLTexture? {
+        guard let loaded = referenceFrame, loaded.clipID == reference.clipID else {
+            loadReferenceFrame(reference.clipID)
+            return nil
+        }
+        let key = ReferenceKey(clipID: reference.clipID, settings: reference.settings, height: height)
+        if let referenceImage, referenceImage.key == key { return referenceImage.texture }
+        guard let referenceRenderer else { return nil }
+        let frame = loaded.frame
+        let upright = frame.orientation.uprightSize(
+            CGSize(width: CVPixelBufferGetWidth(frame.buffer), height: CVPixelBufferGetHeight(frame.buffer)))
+        let texture = try referenceRenderer.encode(
+            frame.buffer, frameIndex: 0, settings: reference.settings,
+            options: .init(scale: min(1, Double(height) / upright.height), orientation: frame.orientation),
+            into: commandBuffer)
+        referenceImage = (key, texture)
+        return texture
+    }
+
+    private func loadReferenceFrame(_ clipID: UUID) {
+        guard loadingReferenceID != clipID, let media = workspace.clips.first(where: { $0.id == clipID })?.media else { return }
+        loadingReferenceID = clipID
+        Task { [weak self] in
+            guard let frame = await ThumbnailRenderer.shared.frame(forClip: clipID, media: media), let self else { return }
+            referenceFrame = (clipID, frame)
+            lastState = nil // draw again, now with the reference
+        }
     }
 }
 
@@ -153,27 +213,42 @@ struct CompareOverlay: View {
                 case .before:
                     label("BEFORE").position(x: rect.minX + 44, y: rect.minY + 22)
                 case .split:
-                    let x = rect.minX + rect.width * workspace.splitPosition
-                    Rectangle()
-                        .fill(.white.opacity(0.85))
-                        .frame(width: 1, height: rect.height)
-                        .position(x: x, y: rect.midY)
-                    Circle()
-                        .fill(.black.opacity(0.55))
-                        .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 1))
-                        .overlay(Image(systemName: "arrow.left.and.right").font(.system(size: 10, weight: .bold)))
-                        .frame(width: 28, height: 28)
-                        .position(x: x, y: rect.midY)
-                    label("BEFORE").position(x: rect.minX + 44, y: rect.minY + 22)
-                    label("AFTER").position(x: rect.maxX - 40, y: rect.minY + 22)
+                    divider(in: rect, left: "BEFORE", right: "AFTER")
+                case .reference:
+                    divider(in: rect, left: workspace.referenceClip?.name.uppercased() ?? "", right: "THIS CLIP")
                 }
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                guard workspace.compare == .split, rect.width > 0 else { return }
+                guard isWipe, rect.width > 0 else { return }
                 workspace.splitPosition = min(1, max(0, (value.location.x - rect.minX) / rect.width))
-            }, including: workspace.compare == .split ? .all : .none)
+            }, including: isWipe ? .all : .none)
         }
+    }
+
+    private var isWipe: Bool { workspace.compare == .split || workspace.compare == .reference }
+
+    @ViewBuilder
+    private func divider(in rect: CGRect, left: String, right: String) -> some View {
+        let x = rect.minX + rect.width * workspace.splitPosition
+        Rectangle()
+            .fill(.white.opacity(0.85))
+            .frame(width: 1, height: rect.height)
+            .position(x: x, y: rect.midY)
+        Circle()
+            .fill(.black.opacity(0.55))
+            .overlay(Circle().strokeBorder(.white.opacity(0.85), lineWidth: 1))
+            .overlay(Image(systemName: "arrow.left.and.right").font(.system(size: 10, weight: .bold)))
+            .frame(width: 28, height: 28)
+            .position(x: x, y: rect.midY)
+        HStack {
+            label(left)
+            Spacer()
+            label(right)
+        }
+        .padding(.horizontal, 12)
+        .frame(width: rect.width)
+        .position(x: rect.midX, y: rect.minY + 22)
     }
 
     private func label(_ text: String) -> some View {

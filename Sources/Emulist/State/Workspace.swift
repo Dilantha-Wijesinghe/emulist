@@ -4,7 +4,8 @@ import Observation
 import UniformTypeIdentifiers
 
 enum CompareMode: String, CaseIterable, Identifiable {
-    case off, split, before
+    /// `reference`: another clip's graded frame on the left of the split, for matching shots.
+    case off, split, before, reference
     var id: String { rawValue }
 }
 
@@ -98,6 +99,8 @@ final class Workspace {
     // Modes
     var compare = CompareMode.off
     var splitPosition = 0.5
+    /// The clip shown on the left of the split in `reference` mode.
+    private(set) var referenceClipID: UUID?
     var quality = PreviewQuality.full
     var alert: AppAlert?
     var isExportSheetPresented = false
@@ -478,6 +481,7 @@ final class Workspace {
 
     func removeClip(_ id: UUID) {
         guard let index = clips.firstIndex(where: { $0.id == id }) else { return }
+        if id == referenceClipID, compare == .reference { compare = .off }
         guard clips.count > 1 else { return resetSession() }
         if id == selectedClipID { selectClip(clips[index == clips.count - 1 ? index - 1 : index + 1].id) }
         clips.remove(at: index)
@@ -643,10 +647,23 @@ final class Workspace {
         compare = compare == .split ? .off : .split
     }
 
+    /// Wipes between this clip and another clip's graded frame, for matching shots.
+    func compare(with clipID: UUID) {
+        guard clipID != selectedClipID, clips.contains(where: { $0.id == clipID && $0.media != nil }) else { return }
+        referenceClipID = clipID
+        compare = .reference
+    }
+
+    /// The clip on the left of the split, while comparing with one.
+    var referenceClip: Clip? {
+        guard compare == .reference else { return nil }
+        return clips.first { $0.id == referenceClipID && $0.media != nil }
+    }
+
     /// The fraction of the frame (from the left) rendered as "before".
     var beforeSplit: Double {
         switch compare {
-        case .off: 0
+        case .off, .reference: 0
         case .split: splitPosition
         case .before: 1
         }

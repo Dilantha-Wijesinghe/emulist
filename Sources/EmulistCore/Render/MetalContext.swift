@@ -40,7 +40,7 @@ public final class MetalContext: @unchecked Sendable {
         let library = try Self.makeLibrary(device: device)
 
         var pipelines: [String: MTLComputePipelineState] = [:]
-        for name in ["input_transform", "effects_prefilter", "grain_generate", "film_render", "copy_texture"] {
+        for name in ["input_transform", "effects_prefilter", "grain_generate", "film_render", "reference_wipe", "copy_texture"] {
             guard let function = library.makeFunction(name: name) else { throw RenderError.shaderCompilation(name) }
             pipelines[name] = try device.makeComputePipelineState(function: function)
         }

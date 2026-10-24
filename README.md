@@ -37,6 +37,9 @@ along the bottom.
 4. **Shape the film** in the rack (bottom right): intensity, push/pull and fade; printer lights; grain, halation
    and bloom, each with its own power switch.
 5. **Compare** with the two toolbar buttons: **Before / After** latches the ungraded image on and off (`B`), and **Split** shows a wipe you can drag (`⇧B`).
+   To match shots, right-click another clip in the strip and choose **Compare with This Clip**: its graded frame
+   (the one on its thumbnail) fills the left of the wipe, fitted inside the frame. Switching clips, `B`, `⇧B` or
+   removing that clip ends the comparison.
 6. **Work across clips.** With two or more clips a strip appears under the viewer, with a live graded thumbnail
    per clip. Click a clip to grade it; each clip keeps its own grade and its own undo history.
    - **Copy Grade** (⌥⌘C) and **Paste Grade** (⌥⌘V). ⌘-click clips in the strip to pick several, and one paste

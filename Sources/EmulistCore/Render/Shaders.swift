@@ -208,6 +208,30 @@ enum ShaderSource {
         out.write(float4(sampleLUT(lookLUT, apply_grade(stops, grade), u), 1), gid);
     }
 
+    // MARK: Reference wipe
+
+    struct WipeUniforms {
+        float4 split;   // x: pixels left of this fraction of the width show the reference
+        float4 rect;    // the reference, fitted inside the frame: origin and size as fractions of it
+    };
+
+    /// Another clip's graded frame on the left of the split (letterboxed), this clip on the right.
+    kernel void reference_wipe(texture2d<float, access::read> current [[texture(0)]],
+                               texture2d<float, access::sample> reference [[texture(1)]],
+                               texture2d<float, access::write> out [[texture(2)]],
+                               constant WipeUniforms &u [[buffer(0)]],
+                               uint2 gid [[thread_position_in_grid]]) {
+        if (gid.x >= out.get_width() || gid.y >= out.get_height()) return;
+        float2 uv = (float2(gid) + 0.5) / float2(out.get_width(), out.get_height());
+        if (uv.x >= u.split.x) {
+            out.write(current.read(gid), gid);
+            return;
+        }
+        float2 r = (uv - u.rect.xy) / u.rect.zw;
+        bool inside = all(r >= 0.0f) && all(r <= 1.0f);
+        out.write(inside ? float4(reference.sample(linearClamp, r).rgb, 1) : float4(0, 0, 0, 1), gid);
+    }
+
     // MARK: Utilities
 
     kernel void copy_texture(texture2d<float, access::read> src [[texture(0)]],

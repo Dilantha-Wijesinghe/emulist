@@ -44,6 +44,8 @@ struct ClipStrip: View {
 
     @ViewBuilder private func menu(for clip: Clip) -> some View {
         Button("Grade This Clip") { workspace.selectClip(clip.id) }
+        Button("Compare with This Clip") { workspace.compare(with: clip.id) }
+            .disabled(clip.id == workspace.selectedClipID || clip.media == nil)
         Divider()
         Button("Paste Grade Here") {
             workspace.selectClip(clip.id)

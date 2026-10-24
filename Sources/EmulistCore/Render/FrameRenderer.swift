@@ -107,6 +107,22 @@ public final class FrameRenderer: @unchecked Sendable {
         return output
     }
 
+    /// `image` with `reference` (another clip's frame, fitted inside it) on the left of `split`, a fraction
+    /// of the width: a wipe for matching shots. Returns a texture the next call reuses.
+    public func wipe(_ image: MTLTexture, reference: MTLTexture, split: Double,
+                     into commandBuffer: MTLCommandBuffer) throws -> MTLTexture {
+        let output = try texture("wipe", width: image.width, height: image.height)
+        let fit = min(Double(image.width) / Double(reference.width), Double(image.height) / Double(reference.height))
+        let size = SIMD2(Double(reference.width) * fit / Double(image.width), Double(reference.height) * fit / Double(image.height))
+        let uniforms = [SIMD4<Float>(Float(split), 0, 0, 0),  // WipeUniforms: split, rect
+                        SIMD4<Float>(Float((1 - size.x) / 2), Float((1 - size.y) / 2), Float(size.x), Float(size.y))]
+        context.dispatch("reference_wipe", on: commandBuffer, size: (image.width, image.height)) { encoder in
+            encoder.setTextures([image, reference, output], range: 0..<3)
+            encoder.setBytes(uniforms, length: MemoryLayout<SIMD4<Float>>.stride * uniforms.count, index: 0)
+        }
+        return output
+    }
+
     /// Copies `source` into a pixel buffer (any Metal-compatible RGB format), e.g. for export.
     public func copy(_ source: MTLTexture, to pixelBuffer: CVPixelBuffer, format: MTLPixelFormat,
                      into commandBuffer: MTLCommandBuffer) throws {
