@@ -379,7 +379,8 @@ final class Workspace {
                     opened[index].media = info
                 }
             }
-            closeProject()
+            guard confirmLeavingSession() else { return }
+            resetSession()
             clips = opened
             exportSettings = project.export
             projectURL = url
@@ -440,7 +441,7 @@ final class Workspace {
 
     func removeClip(_ id: UUID) {
         guard let index = clips.firstIndex(where: { $0.id == id }) else { return }
-        guard clips.count > 1 else { return closeProject() }
+        guard clips.count > 1 else { return resetSession() }
         if id == selectedClipID { selectClip(clips[index == clips.count - 1 ? index - 1 : index + 1].id) }
         clips.remove(at: index)
         pickedClipIDs.remove(id)
@@ -468,8 +469,38 @@ final class Workspace {
         }
     }
 
-    /// Ends the session: no clips, no project.
+    /// Ends the session, once anything unsaved is saved or knowingly discarded.
     func closeProject() {
+        guard confirmLeavingSession() else { return }
+        resetSession()
+    }
+
+    /// Before the session is closed, replaced or the app quits: true when nothing would be lost. A saved
+    /// project is written now; a session never saved asks to save, discard or cancel.
+    func confirmLeavingSession() -> Bool {
+        flushContinuousEdit()
+        guard hasUnsavedChanges, !clips.isEmpty else { return true }
+        if let projectURL {
+            write(to: projectURL)
+            return !hasUnsavedChanges
+        }
+        let alert = NSAlert()
+        alert.messageText = "Save this session first?"
+        alert.informativeText = clips.count == 1
+            ? "Its grade and snapshots will be lost if you don’t save them."
+            : "The grades and snapshots of its \(clips.count) clips will be lost if you don’t save them."
+        alert.addButton(withTitle: "Save…")
+        alert.addButton(withTitle: "Don’t Save")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return saveAs()
+        case .alertSecondButtonReturn: return true
+        default: return false
+        }
+    }
+
+    /// No clips, no project.
+    private func resetSession() {
         flushContinuousEdit()
         playback.unload()
         clips = []
@@ -511,13 +542,16 @@ final class Workspace {
         if let projectURL { write(to: projectURL) } else { saveAs() }
     }
 
-    func saveAs() {
-        guard !clips.isEmpty else { return }
+    /// Returns whether the project was written.
+    @discardableResult
+    func saveAs() -> Bool {
+        guard !clips.isEmpty else { return false }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [Self.projectType]
         panel.nameFieldStringValue = "\(title).\(EmulistProject.fileExtension)"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
         write(to: url)
+        return !hasUnsavedChanges
     }
 
     private func write(to url: URL) {

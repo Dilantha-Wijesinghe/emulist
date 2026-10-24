@@ -18,7 +18,7 @@ public final class FrameRenderer: @unchecked Sendable {
         public var beforeSplit: Double = 0
         /// The clip's display transform; frames are rendered upright.
         public var orientation: CGAffineTransform = .identity
-        /// Bakes look LUTs on the coarse draft grid, for fast previews during a drag.
+        /// Bakes uncached look LUTs on the coarse draft grid, for fast previews during a drag.
         public var draft = false
 
         public init(scale: Double = 1, beforeSplit: Double = 0, orientation: CGAffineTransform = .identity,
@@ -77,9 +77,13 @@ public final class FrameRenderer: @unchecked Sendable {
                                      into: commandBuffer)
 
         let output = try texture("output", width: width, height: height)
-        let size = options.draft ? min(lutSize, LUTBaker.draftLUTSize) : lutSize
-        let lookLUT = try filmLUT(LUTKey(pipeline: .look(settings), size: size))
-        let beforeLUT = try filmLUT(LUTKey(pipeline: .neutral(output: settings.output), size: size))
+        let lookKey = ColorPipeline.look(settings), beforeKey = ColorPipeline.neutral(output: settings.output)
+        // A draft only stands in for a LUT that would need a full bake (e.g. while dragging Intensity); grading
+        // drags reuse the cached full-size look. Both LUTs share one size, since the shader samples them alike.
+        let needsBake = [lookKey, beforeKey].contains { filmLUTs[LUTKey(pipeline: $0, size: lutSize)] == nil }
+        let size = options.draft && needsBake ? min(lutSize, LUTBaker.draftLUTSize) : lutSize
+        let lookLUT = try filmLUT(LUTKey(pipeline: lookKey, size: size))
+        let beforeLUT = try filmLUT(LUTKey(pipeline: beforeKey, size: size))
         var grade = PrimaryGrade(settings).uniforms
         var uniforms = FilmUniforms(
             luminance: WorkingSpace.luminance.float4,

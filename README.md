@@ -51,7 +51,7 @@ along the bottom.
    Right-click to rename or delete. They're kept in `~/Library/Application Support/Emulist/Presets`.
 9. **Export** (⌘E) the current clip: ProRes 422 HQ, HEVC 10-bit or H.264, with audio.
 10. **Save** the session as an `.emulist` project (⌘S): every clip, its grade and its snapshots. Saved projects
-   autosave, footage is never modified, and a clip whose footage moved waits to be relinked without blocking the
+   autosave, an unsaved session asks before it's closed or the app quits, footage is never modified, and a clip whose footage moved waits to be relinked without blocking the
    others. Projects from earlier versions open as a single clip.
 
 **Every control works the same way.** Drag it (or scroll over it on a trackpad); hold ⌥ for fine control. It
@@ -150,8 +150,8 @@ decode (10-bit Y'CbCr, no OS color conversion)
   grain canvas never drops below 1080 lines; smaller previews sample a filtered mip level. Preview and
   full-resolution export therefore match.
 - **Performance** (M3 Pro). The full UHD pipeline with every effect takes about 13 ms per frame. Half
-  resolution takes about 3 ms. Dragging a knob or wheel never rebakes; the viewer redraws 45–57 times a second
-  while you drag, and edits are applied once per display frame. A look LUT bake takes about 15 ms (2 ms on the
+  resolution takes about 3 ms. Dragging a knob or wheel never rebakes; the viewer redraws about 46–56 times a
+  second while you drag a UHD clip, and edits are applied once per display frame. A look LUT bake takes about 15 ms (2 ms on the
   33³ draft grid used while dragging Intensity or Fade). Export runs at about 55 fps for UHD ProRes.
 
 ## Research notes

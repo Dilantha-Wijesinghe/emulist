@@ -33,6 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        workspace.confirmLeavingSession() ? .terminateNow : .terminateCancel
+    }
 }
 
 struct AppCommands: Commands {
