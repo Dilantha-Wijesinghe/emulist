@@ -210,8 +210,10 @@ decode (10-bit Y'CbCr, no OS color conversion)
   grain canvas never drops below 1080 lines; smaller previews sample a filtered mip level. Preview and
   full-resolution export therefore match.
 - **Performance** (M3 Pro). The full UHD pipeline with every effect takes about 13 ms per frame. Half
-  resolution takes about 3 ms. Dragging a primaries knob or wheel never rebakes; the viewer redraws about 46–56 times a
-  second while you drag a UHD clip, and edits are applied once per display frame. A look LUT bake takes about 15 ms (2 ms on the
+  resolution takes about 3 ms. Dragging a primaries knob or wheel never rebakes, and edits are applied once per
+  display frame. The viewer's default **Auto** preview renders at half resolution while you drag or play and at
+  full the moment you stop (like Resolve): about 57–60 redraws a second while you drag a UHD clip, against 47–52
+  at Full (the SIGNAL row's Preview picker). A look LUT bake takes about 15 ms (2 ms on the
   33³ draft grid used while dragging Intensity, Fade or a hue vector; about 32–44 redraws a second). Export runs at about 55 fps for UHD ProRes.
 
 ## Research notes

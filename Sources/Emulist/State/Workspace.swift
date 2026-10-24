@@ -16,13 +16,15 @@ enum ExportScope: String, CaseIterable, Identifiable {
 }
 
 enum PreviewQuality: String, CaseIterable, Identifiable {
-    case full, half, quarter
+    /// Half while a control is dragged or the clip plays, full the moment it stops (like Resolve).
+    case auto, full, half, quarter
     var id: String { rawValue }
     var name: String { rawValue.capitalized }
 
     /// Processing scale for a source whose short side is `shortSide` (reduced previews keep ≥ ~540 lines).
-    func scale(shortSide: Int) -> Double {
+    func scale(shortSide: Int, isInteracting: Bool) -> Double {
         switch self {
+        case .auto: isInteracting ? Self.half.scale(shortSide: shortSide, isInteracting: true) : 1
         case .full: 1
         case .half: max(0.5, min(1, 540 / Double(shortSide)))
         case .quarter: max(0.25, min(1, 540 / Double(shortSide)))
@@ -76,7 +78,12 @@ final class Workspace {
 
     // The selected clip's working copy (see `Clip`)
     private(set) var media: MediaInfo?
-    private(set) var settings = GradeSettings()
+    private(set) var settings = GradeSettings() {
+        didSet { if selectedLookID != settings.stockID { selectedLookID = settings.stockID } }
+    }
+    /// The grade's look on its own, so views that only show which look is chosen (the library) don't
+    /// update on every knob tick.
+    private(set) var selectedLookID = GradeSettings().stockID
     @ObservationIgnored private var history = EditHistory<GradeSettings>()
     private(set) var canUndo = false
     private(set) var canRedo = false
@@ -107,7 +114,7 @@ final class Workspace {
     var splitPosition = 0.5
     /// The clip shown on the left of the split in `reference` mode.
     private(set) var referenceClipID: UUID?
-    var quality = PreviewQuality.full
+    var quality = PreviewQuality.auto
     var alert: AppAlert?
     var isExportSheetPresented = false
     var exportScope = ExportScope.selectedClip

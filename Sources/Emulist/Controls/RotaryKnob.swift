@@ -21,7 +21,7 @@ struct RotaryKnob: View, Equatable {
     private static let sweep = 0.75
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: showsLabel ? 4 : 0) {
             dial
                 .frame(width: size + 22, height: size + 22)
                 .contentShape(Circle())

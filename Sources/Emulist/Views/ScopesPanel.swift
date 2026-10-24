@@ -13,14 +13,7 @@ struct ScopesPanel: View {
             HStack {
                 Text("SCOPES").captionStyle()
                 Spacer()
-                Picker("Scope", selection: $layout.traceScope) {
-                    Text("Waveform").tag(ScopeKind.waveform)
-                    Text("Parade").tag(ScopeKind.parade)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .fixedSize()
+                SelectorSwitch(selection: $layout.traceScope, options: [("Waveform", .waveform), ("Parade", .parade)])
             }
             .padding(.horizontal, 12)
             .frame(height: 30)

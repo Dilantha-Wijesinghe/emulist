@@ -66,3 +66,35 @@ struct RackModule<Content: View>: View {
         .moduleBackground()
     }
 }
+
+/// A small selector switch between a few named positions, drawn in SwiftUI (an AppKit segmented control
+/// would be re-measured each time the grading panel lays out, on every knob tick).
+struct SelectorSwitch<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [(label: String, value: Value)]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(options, id: \.value) { option in
+                let isSelected = option.value == selection
+                Text(option.label)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(isSelected ? Color.black.opacity(0.8) : Theme.secondaryText)
+                    .padding(.horizontal, 9)
+                    .frame(height: 18)
+                    .background(isSelected ? Theme.accent : .clear, in: RoundedRectangle(cornerRadius: 4))
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard !isSelected else { return }
+                        selection = option.value
+                        Haptics.toggle()
+                    }
+                    .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                    .accessibilityAction { selection = option.value }
+            }
+        }
+        .padding(2)
+        .background(Theme.inset, in: RoundedRectangle(cornerRadius: 6))
+        .fixedSize()
+    }
+}

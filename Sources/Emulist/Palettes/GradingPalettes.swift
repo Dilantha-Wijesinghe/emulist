@@ -96,21 +96,17 @@ struct PrimariesPalette: View {
 
     @Bindable var workspace: Workspace
     @State private var page = Page.wheels
+    @State private var wheelsHeight: CGFloat?
 
     var body: some View {
         let defaults = workspace.settings.defaults
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("PRIMARIES").captionStyle()
-                Picker("Page", selection: $page) {
-                    Text("Wheels").tag(Page.wheels)
-                    Text("Hue").tag(Page.hue)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.mini)
-                .fixedSize()
-                .help("Wheels, or hue-selective color: six vectors that turn, saturate or deepen one range of hues")
+                SelectorSwitch(selection: $page, options: [("Wheels", .wheels), ("Hue", .hue)])
+                    // Reaches into the palette's padding, so the header (and the panel) keep their height.
+                    .padding(.vertical, -5)
+                    .help("Wheels, or hue-selective color: six vectors that turn, saturate or deepen one range of hues")
                 Spacer()
                 Button(page == .wheels ? "Reset Primaries" : "Reset Hue") {
                     page == .wheels ? workspace.resetPrimaries() : workspace.edit { $0.hueVectors = HueVectors() }
@@ -120,10 +116,12 @@ struct PrimariesPalette: View {
                 .foregroundStyle(Theme.secondaryText)
                 .help(page == .wheels ? "Reset the wheels and adjustments below them" : "Reset every hue vector and Protect Skin")
             }
-            // Both pages are always laid out, so switching never changes the panel's size.
-            ZStack(alignment: .topLeading) {
-                wheels.page(isShown: page == .wheels)
-                HueVectorsPage(workspace: workspace, defaults: defaults).page(isShown: page == .hue)
+            // Only the shown page is laid out (the panel re-lays out on every knob tick); the Hue page takes
+            // the wheels' height, so switching never changes the panel's size.
+            if page == .wheels {
+                wheels.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { wheelsHeight = $0 }
+            } else {
+                HueVectorsPage(workspace: workspace, defaults: defaults).frame(height: wheelsHeight, alignment: .top)
             }
             HStack(alignment: .top, spacing: 2) {
                 ForEach(Controls.primaries) { ParameterKnob(spec: $0, defaults: defaults, workspace: workspace) }
@@ -158,7 +156,7 @@ private struct HueVectorsPage: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Grid(horizontalSpacing: 0, verticalSpacing: 0) {
+            Grid(horizontalSpacing: 8, verticalSpacing: 0) {
                 GridRow {
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
                     ForEach(Controls.hueVectors, id: \.vector) { column in
@@ -166,7 +164,7 @@ private struct HueVectorsPage: View {
                             Circle().fill(column.vector.color).frame(width: 7, height: 7)
                             Text(column.vector.name.uppercased()).captionStyle()
                         }
-                        .padding(.bottom, 2)
+                        .padding(.bottom, 1)
                     }
                 }
                 ForEach(0..<3) { row in
@@ -174,7 +172,7 @@ private struct HueVectorsPage: View {
                         Text(["HUE", "SAT", "DENSITY"][row]).captionStyle().gridColumnAlignment(.trailing)
                         ForEach(Controls.hueVectors, id: \.vector) { column in
                             ParameterKnob(spec: column.parameters[row], defaults: defaults, workspace: workspace,
-                                          size: 24, showsLabel: false)
+                                          size: 20, showsLabel: false)
                         }
                     }
                 }
@@ -183,13 +181,6 @@ private struct HueVectorsPage: View {
             ParameterKnob(spec: Controls.protectSkin, defaults: defaults, workspace: workspace)
                 .padding(.top, 14)
         }
-    }
-}
-
-private extension View {
-    /// One of the pages stacked in a palette: laid out always, seen and reachable only when shown.
-    func page(isShown: Bool) -> some View {
-        opacity(isShown ? 1 : 0).allowsHitTesting(isShown).accessibilityHidden(!isShown)
     }
 }
 
@@ -273,6 +264,7 @@ private struct ColorPathModule: View {
             labeledPicker("Preview", selection: $workspace.quality) {
                 ForEach(PreviewQuality.allCases) { Text($0.name).tag($0) }
             }
+            .help("Viewer resolution. Auto renders at half while you drag a control or play, and at full the moment you stop. Export is always full.")
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)

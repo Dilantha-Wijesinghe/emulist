@@ -165,7 +165,7 @@ struct LookLibraryView: View {
     }
 
     private func isSelected(_ item: LibraryItem) -> Bool {
-        if case .look(let look) = item.source { workspace.settings.stockID == look.id } else { false }
+        if case .look(let look) = item.source { workspace.selectedLookID == look.id } else { false }
     }
 
     @ViewBuilder

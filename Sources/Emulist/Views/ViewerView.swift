@@ -138,7 +138,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         let settings = workspace.viewedSettings
         let state = RenderState(
             frame: frameSerial, settings: settings, beforeSplit: workspace.beforeSplit,
-            scale: workspace.quality.scale(shortSide: min(media.width, media.height)),
+            scale: workspace.quality.scale(shortSide: min(media.width, media.height),
+                                           isInteracting: workspace.isContinuousEdit || playback.isPlaying),
             draft: workspace.isContinuousEdit || workspace.preview != nil,
             drawableSize: view.drawableSize,
             reference: workspace.referenceClip.map { Reference(clipID: $0.id, settings: $0.settings, split: workspace.splitPosition) },
