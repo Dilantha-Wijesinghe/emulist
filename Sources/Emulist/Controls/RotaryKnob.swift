@@ -26,15 +26,16 @@ struct RotaryKnob: View {
                 .gesture(drag, including: isEnabled ? .all : .none)
                 .onTapGesture(count: 2) { if isEnabled { reset() } }
                 .onHover { isHovering = $0 }
-                .scrollAdjust(isEnabled: isEnabled, onBegin: { session.begin(at: value, actions) },
-                              onEnd: { session.end(actions) }) { travel, fine in
-                    move(travel * 0.6, absolute: false, fine: fine)
+                .scrollAdjust(isEnabled: isEnabled, onBegin: begin, onEnd: { session.end(actions) }) { travel, fine in
+                    session.move(travel * 0.6, fine: fine, actions)
                 }
             Text(spec.label.uppercased())
                 .font(.system(size: 8.5, weight: .semibold)).tracking(0.4)
                 .foregroundStyle(Theme.secondaryText)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .minimumScaleFactor(0.7)
+                // Narrower than the knob, so long neighbouring labels never touch.
+                .frame(maxWidth: 56)
             ValueField(text: spec.format.string(value), color: isModified ? Theme.accent : Theme.secondaryText,
                        isEnabled: isEnabled) { text in
                 guard let typed = text.typedNumber else { return }
@@ -108,16 +109,15 @@ struct RotaryKnob: View {
     private var drag: some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { drag in
-                if !session.isActive { session.begin(at: value, actions) }
-                move(drag.translation.width - drag.translation.height, absolute: true,
-                     fine: NSEvent.modifierFlags.contains(.option))
+                if !session.isActive { begin() }
+                session.drag(to: drag.translation.width - drag.translation.height,
+                             fine: NSEvent.modifierFlags.contains(.option), actions)
             }
             .onEnded { _ in session.end(actions) }
     }
 
-    private func move(_ points: Double, absolute: Bool, fine: Bool) {
-        session.move(points, absolute: absolute, fine: fine, range: spec.range, pointsPerRange: Self.pointsPerRange,
-                     detent: defaultValue, actions)
+    private func begin() {
+        session.begin(at: value, range: spec.range, pointsPerRange: Self.pointsPerRange, detent: defaultValue, actions)
     }
 
     private func reset() {

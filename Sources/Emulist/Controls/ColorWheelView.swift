@@ -47,7 +47,11 @@ struct ColorWheelView: View {
     let change: (ColorWheel) -> Void
     let end: () -> Void
 
+    /// The puck where the drag began, and the pointer travel since (scaled event by event, so changing
+    /// speed with ⌥ or ⇧ mid-drag never jumps the puck).
     @State private var dragStart: SIMD2<Double>?
+    @State private var dragTravel = SIMD2<Double>.zero
+    @State private var lastTranslation = CGSize.zero
     @State private var isHovering = false
 
     var body: some View {
@@ -179,12 +183,17 @@ struct ColorWheelView: View {
                 let start = dragStart ?? SIMD2(wheel.x, wheel.y)
                 if dragStart == nil {
                     dragStart = start
+                    dragTravel = .zero
+                    lastTranslation = .zero
                     begin()
                 }
                 let flags = NSEvent.modifierFlags
-                let speed = flags.contains(.shift) ? 1.0 : 0.35
-                let delta = SIMD2(drag.translation.width, -drag.translation.height) / travelRadius * speed
-                let next = DragMath.puck(from: start, delta: delta, fine: flags.contains(.option))
+                let speed = (flags.contains(.shift) ? 1.0 : 0.35) * (flags.contains(.option) ? DragMath.fineFactor : 1)
+                let step = SIMD2(drag.translation.width - lastTranslation.width,
+                                 lastTranslation.height - drag.translation.height)
+                lastTranslation = drag.translation
+                dragTravel += step / travelRadius * speed
+                let next = DragMath.puck(from: start, delta: dragTravel, detentRadius: 0.03 * speed / 0.35)
                 let wasCentered = wheel.x == 0 && wheel.y == 0
                 if next == .zero, !wasCentered { Haptics.detent() }
                 change(updated { $0.x = next.x; $0.y = next.y })

@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Also allows running the bare executable (e.g. `swift run`) as a regular foreground app.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
+        ClickAwayEndsEditing.install()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -68,9 +69,9 @@ struct AppCommands: Commands {
             Toggle("Loop", isOn: Binding(get: { workspace.playback.isLooping }, set: { workspace.playback.isLooping = $0 }))
         }
         CommandGroup(before: .toolbar) {
-            Button("Toggle Before / After") { workspace.toggleBefore() }.keyboardShortcut("b", modifiers: [])
+            Button("Before / After") { workspace.toggleBefore() }.keyboardShortcut("b", modifiers: [])
                 .disabled(workspace.media == nil || isTyping == true)
-            Button("Split Compare") { workspace.compare = workspace.compare == .split ? .off : .split }
+            Button("Split Before / After") { workspace.toggleSplit() }
                 .keyboardShortcut("b", modifiers: [.shift])
                 .disabled(workspace.media == nil || isTyping == true)
             Divider()

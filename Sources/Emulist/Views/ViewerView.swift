@@ -14,15 +14,19 @@ struct ViewerView: NSViewRepresentable {
         view.device = context.coordinator.renderer?.context.device
         view.colorPixelFormat = MetalContext.presentPixelFormat
         view.framebufferOnly = true
-        view.preferredFramesPerSecond = 60
+        // Driven by our own display link rather than MTKView's internal timer, which can stay stopped
+        // after the window is hidden and shown again (e.g. opening a clip while the app is hidden).
         view.enableSetNeedsDisplay = false
-        view.isPaused = false
+        view.isPaused = true
         view.clearColor = MTLClearColor(red: 0.045, green: 0.045, blue: 0.045, alpha: 1)
         view.delegate = context.coordinator
+        context.coordinator.drive(view)
         return view
     }
 
     func updateNSView(_ view: MTKView, context: Context) {}
+
+    static func dismantleNSView(_ view: MTKView, coordinator: ViewerCoordinator) { coordinator.stop() }
 }
 
 @MainActor
@@ -42,6 +46,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
     private var mediaURL: URL?
     private var lastState: RenderState?
     private var wasPlaying = false
+    private var displayLink: CADisplayLink?
+    private weak var view: MTKView?
 
     init(workspace: Workspace) {
         self.workspace = workspace
@@ -50,6 +56,26 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         if renderer == nil {
             workspace.alert = AppAlert(title: "Metal unavailable", message: RenderError.noMetalDevice.localizedDescription)
         }
+    }
+
+    /// Draws `view` on every refresh of its display while it is visible, including during menu and
+    /// slider tracking (common run loop modes).
+    func drive(_ view: MTKView) {
+        self.view = view
+        let link = view.displayLink(target: self, selector: #selector(step))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 24, maximum: 60, preferred: 60)
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+    }
+
+    func stop() {
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
+    @objc private func step(_ link: CADisplayLink) {
+        guard let view, view.window?.occlusionState.contains(.visible) == true else { return }
+        view.draw()
     }
 
     nonisolated func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
@@ -87,26 +113,23 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
 
         let colorSpace = settings.output.colorSpace
         if view.colorspace != colorSpace { view.colorspace = colorSpace }
-        guard let commandBuffer = renderer.context.queue.makeCommandBuffer() else { return }
+        // No drawable while the window is hidden: try again next refresh rather than marking it drawn.
+        guard let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
+              let commandBuffer = renderer.context.queue.makeCommandBuffer() else { return }
         do {
             let image = try renderer.encode(
                 frame.buffer, frameIndex: frame.frameIndex, settings: settings,
                 options: .init(scale: state.scale, beforeSplit: state.beforeSplit, orientation: media.transform),
                 into: commandBuffer)
-            present(image, in: view, commandBuffer: commandBuffer)
+            let rect = aspectFitRect(content: CGSize(width: image.width, height: image.height), in: view.drawableSize)
+            renderer.present(image, in: rect, pass: pass, into: commandBuffer)
+            commandBuffer.present(drawable)
             lastState = state
         } catch {
             lastState = state
             workspace.alert = AppAlert(title: "Rendering failed", message: error.localizedDescription)
         }
         commandBuffer.commit()
-    }
-
-    private func present(_ image: MTLTexture, in view: MTKView, commandBuffer: MTLCommandBuffer) {
-        guard let renderer, let pass = view.currentRenderPassDescriptor, let drawable = view.currentDrawable else { return }
-        let rect = aspectFitRect(content: CGSize(width: image.width, height: image.height), in: view.drawableSize)
-        renderer.present(image, in: rect, pass: pass, into: commandBuffer)
-        commandBuffer.present(drawable)
     }
 }
 

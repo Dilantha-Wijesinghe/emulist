@@ -62,16 +62,17 @@ private struct LookTile: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 4) {
-                ZStack {
-                    Theme.inset
-                    if let image {
-                        Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fill)
-                    } else {
-                        ProgressView().controlSize(.mini)
+                // The tile sets the size; the image fills it from an overlay, so it can never widen the column.
+                Theme.inset
+                    .aspectRatio(16 / 10, contentMode: .fit)
+                    .overlay {
+                        if let image {
+                            Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fill)
+                        } else {
+                            ProgressView().controlSize(.mini)
+                        }
                     }
-                }
-                .aspectRatio(16 / 10, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)
                         .strokeBorder(isSelected ? Theme.accent : .white.opacity(isHovering ? 0.3 : 0.07),

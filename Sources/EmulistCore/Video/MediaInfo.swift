@@ -73,21 +73,43 @@ public struct MediaInfo: Sendable, Equatable {
         let primaries = extensions[kCMFormatDescriptionExtension_ColorPrimaries as String] as? String
         let transfer = extensions[kCMFormatDescriptionExtension_TransferFunction as String] as? String
         let log = extensions[kCMFormatDescriptionExtension_LogTransferFunction as String] as? String
+        let metadata = try await asset.load(.metadata)
+        func string(_ identifier: AVMetadataIdentifier) async -> String? {
+            guard let item = AVMetadataItem.metadataItems(from: metadata, filteredByIdentifier: identifier).first
+            else { return nil }
+            return try? await item.load(.stringValue)
+        }
+        let recorder = Recorder(software: await string(.quickTimeMetadataSoftware),
+                                model: await string(.quickTimeMetadataModel))
 
         return MediaInfo(
             url: url, width: Int(abs(oriented.width)), height: Int(abs(oriented.height)),
             frameRate: rate > 0 ? Double(rate) : 30, duration: duration,
             codec: format.map { fourCC(CMFormatDescriptionGetMediaSubType($0)) } ?? "?",
             colorPrimaries: primaries, transferFunction: transfer, logTransferFunction: log, hasAudio: hasAudio,
-            transform: transform, detectedProfile: detectProfile(log: log, transfer: transfer))
+            transform: transform,
+            detectedProfile: detectProfile(log: log, transfer: transfer, primaries: primaries, recorder: recorder))
     }
 
-    /// Only claims a profile when the metadata is explicit; otherwise the user is asked.
-    static func detectProfile(log: String?, transfer: String?) -> CameraProfile? {
+    /// The app and device that recorded a clip, from its QuickTime metadata.
+    struct Recorder {
+        var software: String?
+        var model: String?
+    }
+
+    /// Only claims a profile when the metadata is explicit (or unambiguous); otherwise the user is asked.
+    static func detectProfile(log: String?, transfer: String?, primaries: String? = nil,
+                              recorder: Recorder = Recorder()) -> CameraProfile? {
         if log == kCMFormatDescriptionLogTransferFunction_AppleLog as String { return .appleLog }
-        let transfer = transfer?.lowercased() ?? ""
-        if transfer.contains("slog3") || transfer.contains("s-log3") { return .sLog3 }
-        if transfer.contains("vlog") || transfer.contains("v-log") { return .vLog }
+        let transferName = transfer?.lowercased() ?? ""
+        if transferName.contains("slog3") || transferName.contains("s-log3") { return .sLog3 }
+        if transferName.contains("vlog") || transferName.contains("v-log") { return .vLog }
+        // Blackmagic Camera on iPhone writes Apple Log with Rec.2020 primaries and no transfer tag (observed
+        // with Blackmagic Cam 3.5). If another of its modes ever records untagged Rec.2020, Input fixes it.
+        if transfer == nil, primaries == kCMFormatDescriptionColorPrimaries_ITU_R_2020 as String,
+           recorder.software?.hasPrefix("Blackmagic Cam") == true, recorder.model?.hasPrefix("Apple iPhone") == true {
+            return .appleLog
+        }
         return nil
     }
 

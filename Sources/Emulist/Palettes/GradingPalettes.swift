@@ -4,13 +4,16 @@ import SwiftUI
 /// The bottom of the color page: primaries on the left, the film rack on the right.
 struct GradingPanel: View {
     @Bindable var workspace: Workspace
+    @State private var viewportWidth: CGFloat = 0
 
     var body: some View {
-        // Fills the window when it fits; scrolls sideways in narrow windows.
-        ViewThatFits(in: .horizontal) {
-            palettes
-            ScrollView(.horizontal) { palettes }
+        // Fills the window when it fits; scrolls sideways in narrow windows. Inside the scroll view the
+        // panel is laid out only when it changes (ViewThatFits re-measured it on every timecode tick).
+        ScrollView(.horizontal) {
+            FillOrOverflow(width: viewportWidth) { palettes }
         }
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
         .background(Theme.panel)
     }
 
@@ -20,6 +23,24 @@ struct GradingPanel: View {
             FilmRack(workspace: workspace)
         }
         .padding(10)
+    }
+}
+
+/// Offers its content the larger of `width` and the content's natural width: stretched to fill a wide
+/// container, at natural size (overflowing, to scroll) in a narrow one.
+private struct FillOrOverflow: Layout {
+    let width: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews.first.map { $0.sizeThatFits(childProposal(proposal, $0)) } ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: childProposal(proposal, subviews[0]))
+    }
+
+    private func childProposal(_ proposal: ProposedViewSize, _ child: LayoutSubview) -> ProposedViewSize {
+        ProposedViewSize(width: max(width, child.sizeThatFits(.unspecified).width), height: proposal.height)
     }
 }
 

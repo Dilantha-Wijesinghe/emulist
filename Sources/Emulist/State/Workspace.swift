@@ -321,8 +321,13 @@ final class Workspace {
 
     // MARK: Viewing
 
+    /// Before ⇄ after. From the split view it goes straight to before.
     func toggleBefore() {
         compare = compare == .before ? .off : .before
+    }
+
+    func toggleSplit() {
+        compare = compare == .split ? .off : .split
     }
 
     /// The fraction of the frame (from the left) rendered as "before".

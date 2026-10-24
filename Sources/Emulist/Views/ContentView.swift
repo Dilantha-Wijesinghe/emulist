@@ -60,14 +60,17 @@ struct ContentView: View {
                 .help("Open footage or a project (⌘O)")
         }
         if workspace.media != nil {
-            ToolbarItem(placement: .principal) {
-                Picker("Compare", selection: $workspace.compare) {
-                    Image(systemName: "rectangle").help("Graded").tag(CompareMode.off)
-                    Image(systemName: "rectangle.split.2x1").help("Split before / after").tag(CompareMode.split)
-                    Image(systemName: "rectangle.dashed").help("Before (B)").tag(CompareMode.before)
+            ToolbarItemGroup(placement: .principal) {
+                // Latching buttons: one press shows the ungraded image, the next brings the grade back.
+                Toggle(isOn: Binding(get: { workspace.compare == .before }, set: { _ in workspace.toggleBefore() })) {
+                    Label("Before / After", systemImage: "circle.lefthalf.filled")
                 }
-                .pickerStyle(.segmented)
-                .help("Compare with the ungraded image")
+                .help(workspace.compare == .before ? "Showing the ungraded image · click for the grade (B)"
+                                                   : "Show the ungraded image (B)")
+                Toggle(isOn: Binding(get: { workspace.compare == .split }, set: { _ in workspace.toggleSplit() })) {
+                    Label("Split", systemImage: "rectangle.split.2x1")
+                }
+                .help("Split before / after, drag the divider to wipe (⇧B)")
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 Button { workspace.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }

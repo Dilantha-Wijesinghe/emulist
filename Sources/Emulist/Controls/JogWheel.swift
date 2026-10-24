@@ -51,22 +51,22 @@ struct JogWheel: View {
         .onHover { isHovering = $0 }
         .gesture(DragGesture(minimumDistance: 1)
             .onChanged { drag in
-                if !session.isActive { session.begin(at: value, actions) }
-                move(drag.translation.width, absolute: true, fine: NSEvent.modifierFlags.contains(.option))
+                if !session.isActive { begin() }
+                session.drag(to: drag.translation.width, fine: NSEvent.modifierFlags.contains(.option), actions)
             }
             .onEnded { _ in session.end(actions) })
         .onTapGesture(count: 2) {
             actions.set(defaultValue)
             Haptics.detent()
         }
-        .scrollAdjust(onBegin: { session.begin(at: value, actions) }, onEnd: { session.end(actions) }) { travel, fine in
-            move(travel, absolute: false, fine: fine)
+        .scrollAdjust(onBegin: begin, onEnd: { session.end(actions) }) { travel, fine in
+            session.move(travel, fine: fine, actions)
         }
         .help("Master: drag or scroll sideways · ⌥ for fine control · double-click to reset")
     }
 
-    private func move(_ points: Double, absolute: Bool, fine: Bool) {
-        session.move(points, absolute: absolute, fine: fine, range: range, pointsPerRange: pointsPerRange,
-                     detent: defaultValue, detentWidth: 0.008, actions)
+    private func begin() {
+        session.begin(at: value, range: range, pointsPerRange: pointsPerRange, detent: defaultValue,
+                      detentWidth: 0.008, actions)
     }
 }

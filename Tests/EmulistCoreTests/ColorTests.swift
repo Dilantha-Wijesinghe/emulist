@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreMedia
 import Foundation
 import Testing
 import simd
@@ -267,25 +268,66 @@ import simd
     }
 }
 
+@Suite struct ProfileDetectionTests {
+    private let bt2020 = kCMFormatDescriptionColorPrimaries_ITU_R_2020 as String
+
+    @Test func blackmagicCameraOnIPhoneIsAppleLog() {
+        let iPhone = MediaInfo.Recorder(software: "Blackmagic Cam 3.5.200045", model: "Apple iPhone 16 Pro Max 48mm")
+        #expect(MediaInfo.detectProfile(log: nil, transfer: nil, primaries: bt2020, recorder: iPhone) == .appleLog)
+        // Tagged modes (here HLG) and other apps are left to the user.
+        #expect(MediaInfo.detectProfile(log: nil, transfer: "ITU_R_2100_HLG", primaries: bt2020, recorder: iPhone) == nil)
+        #expect(MediaInfo.detectProfile(log: nil, transfer: nil, primaries: bt2020,
+                                        recorder: .init(software: "Other", model: "Apple iPhone 15 Pro")) == nil)
+    }
+}
+
 @Suite struct DragMathTests {
+    private func dial(_ value: Double, range: ClosedRange<Double> = -100...100, detent: Double? = 0) -> DragMath.Dial {
+        DragMath.Dial(value: value, range: range, pointsPerRange: 200, detent: detent, detentWidth: 0.015)
+    }
+
     @Test func dragIsRelativeAndClamped() {
-        let v = DragMath.value(from: 10, travel: 50, range: 0...100, pointsPerRange: 100)
-        #expect(v == 60)
-        #expect(DragMath.value(from: 90, travel: 500, range: 0...100, pointsPerRange: 100) == 100)
-        #expect(DragMath.value(from: 10, travel: 50, range: 0...100, pointsPerRange: 100, fine: true) == 15)
+        var d = DragMath.Dial(value: 10, range: 0...100, pointsPerRange: 100)
+        d.move(50)
+        #expect(d.value == 60)
+        d.move(500)
+        #expect(d.value == 100)
+        var fine = DragMath.Dial(value: 10, range: 0...100, pointsPerRange: 100)
+        fine.move(50, fine: true)
+        #expect(fine.value == 15)
     }
 
     @Test func defaultIsAStickyDetentWithoutJumps() {
-        // From the detent, small travel stays put…
-        #expect(DragMath.value(from: 0, travel: 2, range: -100...100, pointsPerRange: 200, detent: 0, detentWidth: 0.015) == 0)
+        // From the detent, small travel stays put (the dead zone is 3 points)…
+        var d = dial(0)
+        d.move(2)
+        #expect(d.value == 0)
         // …and leaving it is continuous: just past the dead zone the value is just past zero.
-        let past = DragMath.value(from: 0, travel: 3.1, range: -100...100, pointsPerRange: 200, detent: 0, detentWidth: 0.015)
-        #expect(past > 0 && past < 0.2)
+        d.move(1.1)
+        #expect(d.value > 0 && d.value < 0.2)
         // Starting away from the detent, the first movement is never a jump.
-        let nudge = DragMath.value(from: 40, travel: 1, range: -100...100, pointsPerRange: 200, detent: 0)
-        #expect(abs(nudge - 41) < 1e-9)
+        var nudge = dial(40)
+        nudge.move(1)
+        #expect(abs(nudge.value - 41) < 1e-9)
         // Crossing it parks there.
-        #expect(DragMath.value(from: 2, travel: -4, range: -100...100, pointsPerRange: 200, detent: 0) == 0)
+        var cross = dial(2)
+        cross.move(-4)
+        #expect(cross.value == 0)
+    }
+
+    @Test func fineModeKeepsTheDetentNarrowAndNeverJumps() {
+        // The same 4 points of pointer travel leave the detent with or without ⌥.
+        for fine in [false, true] {
+            var d = dial(0)
+            d.move(4, fine: fine)
+            #expect(d.value > 0)
+        }
+        // Switching speed mid-drag changes only what follows.
+        var d = dial(50)
+        d.move(10, fine: true)
+        #expect(abs(d.value - 51) < 1e-9)
+        d.move(10)
+        #expect(abs(d.value - 61) < 1e-9)
     }
 
     @Test func detentCrossingIsReported() {

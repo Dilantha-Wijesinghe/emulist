@@ -35,7 +35,7 @@ along the bottom.
      **Highlights**, plus **Exposure, Temp, Tint** (applied as light, before everything).
 4. **Shape the film** in the rack (bottom right): intensity, push/pull and fade; printer lights; grain, halation
    and bloom, each with its own power switch.
-5. **Compare** with the toolbar control: graded, split wipe (drag the handle), or before. `B` toggles before.
+5. **Compare** with the two toolbar buttons: **Before / After** latches the ungraded image on and off (`B`), and **Split** shows a wipe you can drag (`⇧B`).
 6. **Export** (⌘E): ProRes 422 HQ, HEVC 10-bit or H.264, with audio.
 7. **Save** the grade as an `.emulist` project (⌘S). Saved projects autosave, and the footage is never modified.
 

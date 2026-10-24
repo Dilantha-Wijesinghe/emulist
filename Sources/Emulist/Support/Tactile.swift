@@ -33,33 +33,39 @@ struct EditActions {
 /// never read a value SwiftUI hasn't re-rendered yet.
 @MainActor
 final class AdjustSession {
-    private(set) var isActive = false
-    private var start = 0.0
-    private var travel = 0.0
-    private var last = 0.0
+    private var dial: DragMath.Dial?
+    /// The drag's total translation at the previous event (drags report totals; scrolls report steps).
+    private var lastTranslation = 0.0
 
-    func begin(at value: Double, _ actions: EditActions) {
-        isActive = true
-        start = value
-        travel = 0
-        last = value
+    var isActive: Bool { dial != nil }
+
+    func begin(at value: Double, range: ClosedRange<Double>, pointsPerRange: Double, detent: Double,
+               detentWidth: Double = 0.015, _ actions: EditActions) {
+        dial = DragMath.Dial(value: value, range: range, pointsPerRange: pointsPerRange, detent: detent,
+                             detentWidth: detentWidth)
+        lastTranslation = 0
         actions.begin()
     }
 
-    /// `absolute` replaces the travel (drags report total translation); otherwise it accumulates (scrolls).
-    func move(_ points: Double, absolute: Bool, fine: Bool, range: ClosedRange<Double>, pointsPerRange: Double,
-              detent: Double, detentWidth: Double = 0.015, _ actions: EditActions) {
-        travel = absolute ? points : travel + points
-        let next = DragMath.value(from: start, travel: travel, range: range, pointsPerRange: pointsPerRange,
-                                  fine: fine, detent: detent, detentWidth: detentWidth)
-        if DragMath.reached(detent, from: last, to: next) { Haptics.detent() }
-        last = next
-        actions.change(next)
+    /// A drag's cumulative translation since it began.
+    func drag(to translation: Double, fine: Bool, _ actions: EditActions) {
+        move(translation - lastTranslation, fine: fine, actions)
+        lastTranslation = translation
+    }
+
+    /// An incremental movement, e.g. one scroll event.
+    func move(_ points: Double, fine: Bool, _ actions: EditActions) {
+        guard var dial else { return }
+        let last = dial.value
+        dial.move(points, fine: fine)
+        self.dial = dial
+        if let detent = dial.detent, DragMath.reached(detent, from: last, to: dial.value) { Haptics.detent() }
+        if dial.value != last { actions.change(dial.value) }
     }
 
     func end(_ actions: EditActions) {
         guard isActive else { return }
-        isActive = false
+        dial = nil
         actions.end()
     }
 }
@@ -148,22 +154,30 @@ struct ValueField: View {
     /// Receives the typed text; the caller ignores entries it can't parse.
     let onCommit: (String) -> Void
 
-    @State private var draft: String?
+    // A plain string, never an optional binding: the field may read it once more after editing ends.
+    @State private var draft = ""
+    @State private var isEditing = false
     @FocusState private var isFocused: Bool
 
     var body: some View {
         Group {
-            if let binding = Binding($draft) {
-                TextField("", text: binding)
+            if isEditing {
+                TextField("", text: $draft)
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.center)
                     .focused($isFocused)
                     .onSubmit(commit)
-                    .onExitCommand { draft = nil }
+                    .onExitCommand { isEditing = false }
                     .onChange(of: isFocused) { _, focused in if !focused { commit() } }
                     .padding(.horizontal, 2)
                     .background(Theme.inset, in: RoundedRectangle(cornerRadius: 3))
-                    .onAppear { isFocused = true }
+                    .onAppear {
+                        // Focus once the field is in the window, then select the old value so typing replaces it.
+                        DispatchQueue.main.async {
+                            isFocused = true
+                            DispatchQueue.main.async { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+                        }
+                    }
                     .focusedValue(\.isTypingValue, true)
             } else {
                 Text(text)
@@ -172,6 +186,7 @@ struct ValueField: View {
                     .onTapGesture {
                         guard isEnabled else { return }
                         draft = text
+                        isEditing = true
                     }
                     .help("Click to type a value")
             }
@@ -180,10 +195,11 @@ struct ValueField: View {
         .lineLimit(1)
     }
 
+    /// Return and losing focus both commit; Escape has already ended editing, so it cancels.
     private func commit() {
-        guard let value = draft else { return }
-        draft = nil
-        onCommit(value)
+        guard isEditing else { return }
+        isEditing = false
+        onCommit(draft)
     }
 }
 
@@ -202,4 +218,26 @@ extension FocusedValues {
     }
 
     private struct TypingValueKey: FocusedValueKey { typealias Value = Bool }
+}
+
+/// Clicking anywhere that isn't a text field ends typing, as in a grading app: knobs, wheels and the
+/// viewer don't take keyboard focus themselves, so without this a value field would stay open.
+@MainActor
+enum ClickAwayEndsEditing {
+    private static var monitor: Any?
+
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { event in
+            if let window = event.window, window.firstResponder is NSText,
+               !(window.contentView?.hitTest(event.locationInWindow).map(isTextInput) ?? false) {
+                window.makeFirstResponder(nil)
+            }
+            return event
+        }
+    }
+
+    private static func isTextInput(_ view: NSView) -> Bool {
+        sequence(first: view, next: \.superview).contains { $0 is NSTextField || $0 is NSText }
+    }
 }
