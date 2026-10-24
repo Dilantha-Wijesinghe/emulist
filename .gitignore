@@ -16,6 +16,9 @@ DerivedData/
 *.m4v
 /renders/
 
+# Reference footage and material kept locally
+/references/
+
 # macOS
 .DS_Store
 *.cube
