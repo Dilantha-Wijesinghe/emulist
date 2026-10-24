@@ -100,6 +100,52 @@ enum ShaderSource {
                          gaussian(base + 0x3C6EF372u), gaussian(base + 0xDAA66D2Bu)), gid);
     }
 
+    // MARK: Primary grade (mirrors PrimaryGrade.apply; every constant arrives in the uniforms)
+
+    struct GradeUniforms {
+        float4 lift, gamma, gain, offset;
+        float4 exposure;  // xyz: stops, w: 1 when active
+        float4 space;     // x: stops floor, y: stops range, z: contrast, w: pivot
+        float4 tone;      // shadow edges (xy), highlight edges (zw)
+        float4 color;     // x: shadows, y: highlights, z: saturation, w: boost
+        float4 density;   // x: depth, y: darkening
+        float4 luminance;
+    };
+
+    static float gamma_curve(float t, float g) {
+        if (g == 0 || t <= 0) return t;
+        float p = exp2(-2 * g);
+        return t < 1 ? pow(t, p) : 1 + (t - 1) * p;
+    }
+
+    static float spread_of(float3 e) { return max3(e.r, e.g, e.b) - min3(e.r, e.g, e.b); }
+
+    // Log exposure (stops per channel) -> graded log exposure.
+    static float3 apply_grade(float3 stops, constant GradeUniforms &g) {
+        if (g.exposure.w == 0) return stops;
+        float3 e = stops + g.exposure.xyz;
+
+        float3 t = (e - g.space.x) / g.space.y;
+        t += g.lift.xyz * (1 - t);
+        t *= 1 + g.gain.xyz;
+        t = float3(gamma_curve(t.r, g.gamma.r), gamma_curve(t.g, g.gamma.g), gamma_curve(t.b, g.gamma.b));
+        t += g.offset.xyz;
+        t = g.space.w + (t - g.space.w) * g.space.z;
+        e = t * g.space.y + g.space.x;
+
+        float luma = dot(e, g.luminance.xyz);
+        e += g.color.x * (1 - smoothstep(g.tone.x, g.tone.y, luma)) + g.color.y * smoothstep(g.tone.z, g.tone.w, luma);
+
+        float mean = dot(e, g.luminance.xyz);
+        float spread = spread_of(e);
+        e = mean + (e - mean) * (g.color.z * (1 + g.color.w / (1 + spread * spread)));
+        if (g.density.x > 0) {
+            spread = spread_of(e);
+            e += (e - max3(e.r, e.g, e.b)) * g.density.x - g.density.y * spread;
+        }
+        return e;
+    }
+
     // MARK: Film
 
     struct FilmUniforms {
@@ -128,10 +174,11 @@ enum ShaderSource {
                             texture2d<float, access::sample> bloom [[texture(2)]],
                             texture2d<float, access::sample> halation [[texture(3)]],
                             texture2d<float, access::sample> grain [[texture(4)]],
-                            texture3d<float, access::sample> gradeLUT [[texture(5)]],
+                            texture3d<float, access::sample> lookLUT [[texture(5)]],
                             texture3d<float, access::sample> beforeLUT [[texture(6)]],
                             texture2d<float, access::write> out [[texture(7)]],
                             constant FilmUniforms &u [[buffer(0)]],
+                            constant GradeUniforms &grade [[buffer(1)]],
                             uint2 gid [[thread_position_in_grid]]) {
         if (gid.x >= out.get_width() || gid.y >= out.get_height()) return;
         float2 uv = (float2(gid) + 0.5) / float2(out.get_width(), out.get_height());
@@ -158,7 +205,7 @@ enum ShaderSource {
             float weight = 0.55f + 0.45f * exp(-tone * tone / 12.5f);
             stops += u.grain.x * weight * noise;
         }
-        out.write(float4(sampleLUT(gradeLUT, stops, u), 1), gid);
+        out.write(float4(sampleLUT(lookLUT, apply_grade(stops, grade), u), 1), gid);
     }
 
     // MARK: Utilities

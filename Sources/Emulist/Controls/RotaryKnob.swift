@@ -3,7 +3,7 @@ import SwiftUI
 
 /// A machined rotary knob with a 270° scale. Drag up/right (or scroll) to turn it, hold ⌥ for fine
 /// control, double-click to reset, click the readout to type a value. It clicks into its default.
-struct RotaryKnob: View {
+struct RotaryKnob: View, Equatable {
     let spec: ParameterSpec
     let value: Double
     let defaultValue: Double
@@ -49,6 +49,12 @@ struct RotaryKnob: View {
     }
 
     private var isModified: Bool { abs(value - defaultValue) > 1e-6 }
+
+    /// What the knob shows; its actions are stable for a given parameter, so they don't count.
+    nonisolated static func == (a: RotaryKnob, b: RotaryKnob) -> Bool {
+        a.spec.keyPath == b.spec.keyPath && a.value == b.value && a.defaultValue == b.defaultValue
+            && a.isEnabled == b.isEnabled && a.size == b.size
+    }
 
     /// Bipolar controls (default in the middle) light the arc from the center; others from the minimum.
     private var arcOrigin: Double {

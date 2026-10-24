@@ -39,7 +39,7 @@ extension ColorWheel.Kind {
 /// A primary color wheel: a vectorscope-oriented trackball (drag the puck toward a hue), the master
 /// thumbwheel beneath it and editable R G B readouts. Dragging is relative and slow by default so the
 /// puck can be placed precisely; ⌥ is finer still, ⇧ faster. The center is a detent.
-struct ColorWheelView: View {
+struct ColorWheelView: View, Equatable {
     let kind: ColorWheel.Kind
     let wheel: ColorWheel
     var diameter: CGFloat = 116
@@ -53,6 +53,11 @@ struct ColorWheelView: View {
     @State private var dragTravel = SIMD2<Double>.zero
     @State private var lastTranslation = CGSize.zero
     @State private var isHovering = false
+
+    /// What the wheel shows; its callbacks are stable for a given wheel, so they don't count.
+    nonisolated static func == (a: ColorWheelView, b: ColorWheelView) -> Bool {
+        a.kind == b.kind && a.wheel == b.wheel && a.diameter == b.diameter
+    }
 
     var body: some View {
         VStack(spacing: 7) {

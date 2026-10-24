@@ -2,7 +2,7 @@ import EmulistCore
 import SwiftUI
 
 /// One adjustable number. Every knob in the app is generated from these specs.
-struct ParameterSpec: Identifiable {
+struct ParameterSpec: Identifiable, Sendable {
     enum Format {
         case stops, percent, signed, plain
 
@@ -17,7 +17,7 @@ struct ParameterSpec: Identifiable {
     }
 
     let label: String
-    let keyPath: WritableKeyPath<GradeSettings, Double>
+    let keyPath: WritableKeyPath<GradeSettings, Double> & Sendable
     let range: ClosedRange<Double>
     var format = Format.plain
     /// Colors along the knob's arc, for controls whose meaning is a color direction.
@@ -92,13 +92,4 @@ enum Controls {
         .init(label: "Radius", keyPath: \.bloom.radius, range: 0...100),
         .init(label: "Threshold", keyPath: \.bloom.threshold, range: 0...100),
     ])
-}
-
-extension GradeSettings {
-    /// The value a parameter returns to on reset: the factory default with the current stock's recommendations.
-    func defaultValue(_ keyPath: WritableKeyPath<GradeSettings, Double>) -> Double {
-        var defaults = GradeSettings()
-        defaults.select(stock)
-        return defaults[keyPath: keyPath]
-    }
 }

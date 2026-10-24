@@ -28,6 +28,35 @@ struct FilmUniforms {
     var compare: SIMD4<Float>
 }
 
+struct GradeUniforms {
+    var lift: SIMD4<Float>
+    var gamma: SIMD4<Float>
+    var gain: SIMD4<Float>
+    var offset: SIMD4<Float>
+    var exposure: SIMD4<Float>  // xyz: stops; w: 1 when the grade does anything
+    var space: SIMD4<Float>     // x: stops floor, y: stops range, z: contrast, w: pivot (normalized)
+    var tone: SIMD4<Float>      // shadow fade-out edges (xy), highlight fade-in edges (zw), in stops
+    var color: SIMD4<Float>     // x: shadows, y: highlights (stops), z: saturation, w: boost
+    var density: SIMD4<Float>   // x: depth, y: darkening
+    var luminance: SIMD4<Float>
+}
+
+extension PrimaryGrade {
+    /// The grade as shader uniforms: the GPU runs the same steps as `apply(_:)`, with every constant from here.
+    var uniforms: GradeUniforms {
+        typealias G = PrimaryGrade
+        return GradeUniforms(
+            lift: lift.float4, gamma: gamma.float4, gain: gain.float4, offset: offset.float4,
+            exposure: SIMD4(Float(exposure.x), Float(exposure.y), Float(exposure.z), isIdentity ? 0 : 1),
+            space: SIMD4(Float(G.stopsFloor), Float(G.stopsRange), Float(contrast), Float(pivot)),
+            tone: SIMD4(Float(G.shadowEdges.lower), Float(G.shadowEdges.upper),
+                        Float(G.highlightEdges.lower), Float(G.highlightEdges.upper)),
+            color: SIMD4(Float(shadows), Float(highlights), Float(saturation), Float(colorBoost * G.boostScale)),
+            density: SIMD4(Float(density * G.densityDepth), Float(density * G.densityDarkening), 0, 0),
+            luminance: WorkingSpace.luminance.float4)
+    }
+}
+
 extension Matrix3 {
     var rows4: (SIMD4<Float>, SIMD4<Float>, SIMD4<Float>) {
         func row(_ r: Int) -> SIMD4<Float> { SIMD4(Float(self[0][r]), Float(self[1][r]), Float(self[2][r]), 0) }

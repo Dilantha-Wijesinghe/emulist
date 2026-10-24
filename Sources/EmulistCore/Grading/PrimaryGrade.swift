@@ -88,6 +88,13 @@ public struct PrimaryGrade: Hashable, Sendable {
 
     static let stopsRange = 14.0
     static let stopsFloor = -7.0
+    /// Luma ranges (stops) where shadows fade out and highlights fade in.
+    static let shadowEdges = (lower: -5.0, upper: 0.5)
+    static let highlightEdges = (lower: -0.5, upper: 3.5)
+    /// Scales of the color controls: boost for muted colors, and density's deepening and darkening.
+    static let boostScale = 1.2
+    static let densityDepth = 0.45
+    static let densityDarkening = 0.3
 
     public init() {}
 
@@ -128,19 +135,21 @@ public struct PrimaryGrade: Hashable, Sendable {
 
         // Tonal ranges, hue-preserving (equal stops on every channel).
         let luma = simd_dot(e, WorkingSpace.luminance)
-        e += RGB(repeating: shadows * (1 - Self.smoothstep(-5, 0.5, luma)) + highlights * Self.smoothstep(-0.5, 3.5, luma))
+        e += RGB(repeating: shadows * (1 - Self.smoothstep(Self.shadowEdges.lower, Self.shadowEdges.upper, luma))
+                 + highlights * Self.smoothstep(Self.highlightEdges.lower, Self.highlightEdges.upper, luma))
 
         // Color: saturation and boost scale chroma around luminance; density darkens it subtractively.
         let mean = simd_dot(e, WorkingSpace.luminance)
         let chroma = e - RGB(repeating: mean)
         let spread = e.max() - e.min()
-        let boost = 1 + colorBoost * 1.2 / (1 + spread * spread)
+        let boost = 1 + colorBoost * Self.boostScale / (1 + spread * spread)
         e = RGB(repeating: mean) + chroma * (saturation * boost)
         if density > 0 {
             // Subtractive, like denser dye: the weaker channels fall most, the whole color darkens with
             // its saturation, and neutrals (no spread) are untouched.
             let spread = e.max() - e.min()
-            e += (e - RGB(repeating: e.max())) * (density * 0.45) - RGB(repeating: density * 0.3 * spread)
+            e += (e - RGB(repeating: e.max())) * (density * Self.densityDepth)
+                - RGB(repeating: density * Self.densityDarkening * spread)
         }
         return e
     }

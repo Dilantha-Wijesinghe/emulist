@@ -10,7 +10,7 @@ struct GradingPanel: View {
         // Fills the window when it fits; scrolls sideways in narrow windows. Inside the scroll view the
         // panel is laid out only when it changes (ViewThatFits re-measured it on every timecode tick).
         ScrollView(.horizontal) {
-            FillOrOverflow(width: viewportWidth) { palettes }
+            FillOrOverflow(width: viewportWidth, contentKey: workspace.settings.stockID) { palettes }
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
@@ -28,35 +28,58 @@ struct GradingPanel: View {
 
 /// Offers its content the larger of `width` and the content's natural width: stretched to fill a wide
 /// container, at natural size (overflowing, to scroll) in a narrow one.
+///
+/// Measuring the natural width lays out the whole panel, so it is cached and only re-measured when
+/// `width` or `contentKey` (whatever changes the content's natural width) changes, not on every knob tick.
 private struct FillOrOverflow: Layout {
     let width: CGFloat
+    let contentKey: String
 
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        subviews.first.map { $0.sizeThatFits(childProposal(proposal, $0)) } ?? .zero
+    struct Cache {
+        var naturalWidth: CGFloat?
+        var key = ""
     }
 
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        subviews.first?.place(at: bounds.origin, proposal: childProposal(proposal, subviews[0]))
+    func makeCache(subviews: Subviews) -> Cache { Cache() }
+
+    func updateCache(_ cache: inout Cache, subviews: Subviews) {
+        let key = "\(width)|\(contentKey)|\(subviews.count)"
+        if cache.key != key { cache = Cache(key: key) }
     }
 
-    private func childProposal(_ proposal: ProposedViewSize, _ child: LayoutSubview) -> ProposedViewSize {
-        ProposedViewSize(width: max(width, child.sizeThatFits(.unspecified).width), height: proposal.height)
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        return child.sizeThatFits(childProposal(proposal, child, &cache))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout Cache) {
+        guard let child = subviews.first else { return }
+        child.place(at: bounds.origin, proposal: childProposal(proposal, child, &cache))
+    }
+
+    private func childProposal(_ proposal: ProposedViewSize, _ child: LayoutSubview, _ cache: inout Cache) -> ProposedViewSize {
+        let natural = cache.naturalWidth ?? child.sizeThatFits(.unspecified).width
+        cache.naturalWidth = natural
+        return ProposedViewSize(width: max(width, natural), height: proposal.height)
     }
 }
 
 /// A knob bound to one grade parameter through the workspace (one undo step per gesture).
+/// `defaults` are the settings controls reset to, worked out once per palette rather than per knob.
 struct ParameterKnob: View {
     let spec: ParameterSpec
+    let defaults: GradeSettings
     @Bindable var workspace: Workspace
 
     var body: some View {
         RotaryKnob(
-            spec: spec, value: workspace.settings[keyPath: spec.keyPath],
-            defaultValue: workspace.settings.defaultValue(spec.keyPath),
+            spec: spec, value: workspace.settings[keyPath: spec.keyPath], defaultValue: defaults[keyPath: spec.keyPath],
             actions: EditActions(
                 begin: { workspace.beginContinuousEdit() },
                 change: { value in workspace.continuousEdit { $0[keyPath: spec.keyPath] = value } },
                 end: { workspace.endContinuousEdit() }))
+        // Only the knob whose value (or default) changed redraws.
+        .equatable()
     }
 }
 
@@ -66,6 +89,7 @@ struct PrimariesPalette: View {
     @Bindable var workspace: Workspace
 
     var body: some View {
+        let defaults = workspace.settings.defaults
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("PRIMARIES · WHEELS").captionStyle()
@@ -83,13 +107,14 @@ struct PrimariesPalette: View {
                         begin: { workspace.beginContinuousEdit() },
                         change: { wheel in workspace.continuousEdit { $0[wheel: kind] = wheel } },
                         end: { workspace.endContinuousEdit() })
+                    .equatable()
                 }
             }
             .padding(.horizontal, 4)
             HStack(alignment: .top, spacing: 2) {
-                ForEach(Controls.primaries) { ParameterKnob(spec: $0, workspace: workspace) }
+                ForEach(Controls.primaries) { ParameterKnob(spec: $0, defaults: defaults, workspace: workspace) }
                 Rectangle().fill(Theme.separator).frame(width: 1, height: 64).padding(.horizontal, 4)
-                ForEach(Controls.input) { ParameterKnob(spec: $0, workspace: workspace) }
+                ForEach(Controls.input) { ParameterKnob(spec: $0, defaults: defaults, workspace: workspace) }
             }
         }
         .padding(12)
@@ -103,29 +128,30 @@ struct FilmRack: View {
     @Bindable var workspace: Workspace
 
     var body: some View {
+        let defaults = workspace.settings.defaults
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 RackModule(title: "LOOK") { LookPlate(stock: workspace.settings.stock) }
                     .frame(minWidth: 210)
-                module(Controls.film)
-                module(Controls.printerLights)
+                module(Controls.film, defaults)
+                module(Controls.printerLights, defaults)
             }
             HStack(alignment: .top, spacing: 10) {
-                module(Controls.grain)
-                module(Controls.halation)
-                module(Controls.bloom)
+                module(Controls.grain, defaults)
+                module(Controls.halation, defaults)
+                module(Controls.bloom, defaults)
             }
             ColorPathModule(workspace: workspace)
         }
     }
 
-    private func module(_ spec: ModuleSpec) -> some View {
+    private func module(_ spec: ModuleSpec, _ defaults: GradeSettings) -> some View {
         RackModule(title: spec.title, isOn: spec.toggle.map { toggle in
             Binding(get: { workspace.settings[keyPath: toggle] },
                     set: { on in workspace.edit { $0[keyPath: toggle] = on } })
         }) {
             HStack(spacing: 2) {
-                ForEach(spec.parameters) { ParameterKnob(spec: $0, workspace: workspace) }
+                ForEach(spec.parameters) { ParameterKnob(spec: $0, defaults: defaults, workspace: workspace) }
             }
         }
     }

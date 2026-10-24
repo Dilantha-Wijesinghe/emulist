@@ -56,7 +56,10 @@ final class Workspace {
     private(set) var isLoading = false
 
     @ObservationIgnored private var history = EditHistory<GradeSettings>()
-    @ObservationIgnored private var isContinuousEdit = false
+    /// True during a drag or scroll of a control (the viewer previews on a coarser LUT meanwhile).
+    @ObservationIgnored private(set) var isContinuousEdit = false
+    /// Drag changes waiting for the next display frame (see `continuousEdit`).
+    @ObservationIgnored private var pendingSettings: GradeSettings?
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
     private(set) var canUndo = false
     private(set) var canRedo = false
@@ -75,6 +78,7 @@ final class Workspace {
 
     /// A discrete change (picker, toggle, preset, reset): one undo step.
     func edit(_ change: (inout GradeSettings) -> Void) {
+        flushContinuousEdit()
         var next = settings
         change(&next)
         guard next != settings else { return }
@@ -90,19 +94,34 @@ final class Workspace {
         updateUndoState()
     }
 
+    /// Pointer events arrive at up to 120 Hz. Their changes wait for the viewer's next display frame
+    /// (`flushContinuousEdit`), so SwiftUI updates at most once per frame and the viewer keeps up.
     func continuousEdit(_ change: (inout GradeSettings) -> Void) {
-        var next = settings
+        var next = pendingSettings ?? settings
         change(&next)
+        pendingSettings = next
+    }
+
+    func endContinuousEdit() {
+        flushContinuousEdit()
+        isContinuousEdit = false
+    }
+
+    /// Applies the latest drag change. Called by the viewer once per display frame, and before any
+    /// other edit so changes never reorder.
+    func flushContinuousEdit() {
+        guard let next = pendingSettings else { return }
+        pendingSettings = nil
         apply(next)
     }
 
-    func endContinuousEdit() { isContinuousEdit = false }
-
     func undo() {
+        flushContinuousEdit()
         if let previous = history.undo(from: settings) { apply(previous) }
     }
 
     func redo() {
+        flushContinuousEdit()
         if let next = history.redo(from: settings) { apply(next) }
     }
 

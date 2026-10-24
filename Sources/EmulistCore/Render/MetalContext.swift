@@ -37,18 +37,7 @@ public final class MetalContext: @unchecked Sendable {
         self.device = device
         self.queue = queue
 
-        let library: MTLLibrary
-        do {
-            let options = MTLCompileOptions()
-            if #available(macOS 15.0, *) {
-                options.mathMode = .safe
-            } else {
-                options.fastMathEnabled = false
-            }
-            library = try device.makeLibrary(source: ShaderSource.code, options: options)
-        } catch {
-            throw RenderError.shaderCompilation(error.localizedDescription)
-        }
+        let library = try Self.makeLibrary(device: device)
 
         var pipelines: [String: MTLComputePipelineState] = [:]
         for name in ["input_transform", "effects_prefilter", "grain_generate", "film_render", "copy_texture"] {
@@ -67,6 +56,21 @@ public final class MetalContext: @unchecked Sendable {
         CVMetalTextureCacheCreate(nil, nil, device, nil, &cache)
         guard let cache else { throw RenderError.textureCreation }
         textureCache = cache
+    }
+
+    /// Compiles the engine's shaders, plus `extra` source appended after them (tests add probe kernels).
+    static func makeLibrary(device: MTLDevice, extra: String = "") throws -> MTLLibrary {
+        let options = MTLCompileOptions()
+        if #available(macOS 15.0, *) {
+            options.mathMode = .safe
+        } else {
+            options.fastMathEnabled = false
+        }
+        do {
+            return try device.makeLibrary(source: ShaderSource.code + extra, options: options)
+        } catch {
+            throw RenderError.shaderCompilation(error.localizedDescription)
+        }
     }
 
     func pipeline(_ name: String) -> MTLComputePipelineState { computePipelines[name]! }

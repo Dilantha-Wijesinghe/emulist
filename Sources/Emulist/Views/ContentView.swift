@@ -33,8 +33,7 @@ struct ContentView: View {
             }
         }
         .background(Theme.window)
-        .navigationTitle(workspace.title)
-        .navigationSubtitle(subtitle)
+        .background(WindowTitle(workspace: workspace))
         .toolbar { toolbar }
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: drop)
         .sheet(isPresented: $workspace.isExportSheetPresented) { ExportSheet(workspace: workspace) }
@@ -45,13 +44,6 @@ struct ContentView: View {
     }
 
     private var separator: some View { Rectangle().fill(Theme.separator) }
-
-    private var subtitle: String {
-        guard let media = workspace.media else { return "" }
-        let fps = media.frameRate.rounded() == media.frameRate ? "\(Int(media.frameRate))" : String(format: "%.3f", media.frameRate)
-        let edited = workspace.hasUnsavedChanges && workspace.projectURL != nil ? " · Edited" : ""
-        return "\(media.resolutionLabel) · \(fps) fps · \(workspace.settings.cameraProfile.name)\(edited)"
-    }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
@@ -94,6 +86,25 @@ struct ContentView: View {
             Task { @MainActor in workspace.open(url) }
         }
         return true
+    }
+}
+
+/// The window's title and subtitle. A separate view, so that only it (not the whole window) updates
+/// when the grade changes.
+private struct WindowTitle: View {
+    let workspace: Workspace
+
+    var body: some View {
+        Color.clear
+            .navigationTitle(workspace.title)
+            .navigationSubtitle(subtitle)
+    }
+
+    private var subtitle: String {
+        guard let media = workspace.media else { return "" }
+        let fps = media.frameRate.rounded() == media.frameRate ? "\(Int(media.frameRate))" : String(format: "%.3f", media.frameRate)
+        let edited = workspace.hasUnsavedChanges && workspace.projectURL != nil ? " · Edited" : ""
+        return "\(media.resolutionLabel) · \(fps) fps · \(workspace.settings.cameraProfile.name)\(edited)"
     }
 }
 

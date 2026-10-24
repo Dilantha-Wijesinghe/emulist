@@ -1,8 +1,11 @@
 import Foundation
 import simd
 
-/// Everything the baked 3D LUT encodes, as a value: primary grade → look → fade → output encoding.
+/// The color path from log exposure to display, as a value: primary grade → look → fade → output encoding.
 /// It is `Hashable`, so it doubles as the cache key for baked LUTs.
+///
+/// The renderer bakes `look(_:)` (no primary grade) and applies the grade on the GPU before the LUT, so
+/// grading never rebakes. The full pipeline renders on the CPU, e.g. for tests and baking a whole grade.
 public struct ColorPipeline: Hashable, Sendable {
     public enum Look: Hashable, Sendable {
         /// Emulist's negative + print model (intensity is already blended into the response).
@@ -23,6 +26,13 @@ public struct ColorPipeline: Hashable, Sendable {
         look = stock.lut.map { .lut($0, intensity: settings.intensity / 100) } ?? .film(FilmResponse(for: settings))
         fade = settings.fade / 100
         output = settings.output
+    }
+
+    /// The pipeline without the primary grade: what the renderer bakes into its LUT.
+    public static func look(_ settings: GradeSettings) -> ColorPipeline {
+        var pipeline = ColorPipeline(settings)
+        pipeline.grade = PrimaryGrade()
+        return pipeline
     }
 
     /// The ungraded "before" image: neutral film, no corrections.

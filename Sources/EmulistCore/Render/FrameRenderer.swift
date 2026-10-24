@@ -7,7 +7,7 @@ import MetalPerformanceShaders
 ///
 ///     Y'CbCr → camera decode → working linear (exposure, white balance)
 ///            → [softness] → bloom + halation (scene-linear, half resolution)
-///            → grain (log exposure) → look LUT (primary grade + film or LUT look + output encoding)
+///            → grain (log exposure) → primary grade (log exposure) → look LUT (film or LUT look + output)
 ///
 /// Not thread-safe: use one renderer per thread of work (the viewer and each export own their own).
 public final class FrameRenderer: @unchecked Sendable {
@@ -18,11 +18,15 @@ public final class FrameRenderer: @unchecked Sendable {
         public var beforeSplit: Double = 0
         /// The clip's display transform; frames are rendered upright.
         public var orientation: CGAffineTransform = .identity
+        /// Bakes look LUTs on the coarse draft grid, for fast previews during a drag.
+        public var draft = false
 
-        public init(scale: Double = 1, beforeSplit: Double = 0, orientation: CGAffineTransform = .identity) {
+        public init(scale: Double = 1, beforeSplit: Double = 0, orientation: CGAffineTransform = .identity,
+                    draft: Bool = false) {
             self.scale = scale
             self.beforeSplit = beforeSplit
             self.orientation = orientation
+            self.draft = draft
         }
     }
 
@@ -35,8 +39,13 @@ public final class FrameRenderer: @unchecked Sendable {
     /// Edge length of the baked look LUTs; thumbnails use a coarser grid to bake faster.
     public let lutSize: Int
     private let lutCacheCapacity: Int
-    private var filmLUTs: [ColorPipeline: MTLTexture] = [:]
-    private var filmLUTOrder: [ColorPipeline] = []
+    private struct LUTKey: Hashable {
+        let pipeline: ColorPipeline
+        let size: Int
+    }
+
+    private var filmLUTs: [LUTKey: MTLTexture] = [:]
+    private var filmLUTOrder: [LUTKey] = []
     private var decodeTables: [TransferFunction: MTLBuffer] = [:]
     private var textures: [String: MTLTexture] = [:]
     private var blurs: [Float: MPSImageGaussianBlur] = [:]
@@ -68,13 +77,15 @@ public final class FrameRenderer: @unchecked Sendable {
                                      into: commandBuffer)
 
         let output = try texture("output", width: width, height: height)
-        let gradeLUT = try filmLUT(ColorPipeline(settings))
-        let beforeLUT = try filmLUT(.neutral(output: settings.output))
+        let size = options.draft ? min(lutSize, LUTBaker.draftLUTSize) : lutSize
+        let lookLUT = try filmLUT(LUTKey(pipeline: .look(settings), size: size))
+        let beforeLUT = try filmLUT(LUTKey(pipeline: .neutral(output: settings.output), size: size))
+        var grade = PrimaryGrade(settings).uniforms
         var uniforms = FilmUniforms(
             luminance: WorkingSpace.luminance.float4,
             shaper: SIMD4(Float(WorkingSpace.shaperRange.lowerBound),
                           Float(WorkingSpace.shaperRange.upperBound - WorkingSpace.shaperRange.lowerBound),
-                          Float(WorkingSpace.midGrey), Float(lutSize)),
+                          Float(WorkingSpace.midGrey), Float(size)),
             bloom: SIMD4(Float(effects.bloomAmount), 0, 0, 0),
             halation: SIMD4(Float(effects.halationAmount), Float(effects.halationTint.x),
                             Float(effects.halationTint.y), Float(effects.halationTint.z)),
@@ -84,9 +95,10 @@ public final class FrameRenderer: @unchecked Sendable {
             beforeRows: InputTransform.adjustment(for: settings).inverse.rows4,
             compare: SIMD4(Float(options.beforeSplit), 0, 0, 0))
         context.dispatch("film_render", on: commandBuffer, size: (width, height)) { encoder in
-            encoder.setTextures([working, original, bloom, halation, grain, gradeLUT, beforeLUT, output],
+            encoder.setTextures([working, original, bloom, halation, grain, lookLUT, beforeLUT, output],
                                 range: 0..<8)
             encoder.setBytes(&uniforms, length: MemoryLayout<FilmUniforms>.stride, index: 0)
+            encoder.setBytes(&grade, length: MemoryLayout<GradeUniforms>.stride, index: 1)
         }
         return output
     }
@@ -221,14 +233,14 @@ public final class FrameRenderer: @unchecked Sendable {
 
     /// Baked looks are cached by pipeline, so switching looks back and forth (or drawing thumbnails)
     /// does not rebake.
-    private func filmLUT(_ key: ColorPipeline) throws -> MTLTexture {
+    private func filmLUT(_ key: LUTKey) throws -> MTLTexture {
         if let lut = filmLUTs[key] {
             filmLUTOrder.removeAll { $0 == key }
             filmLUTOrder.append(key)
             return lut
         }
-        let size = lutSize
-        let data = LUTBaker.filmLUT(try key.makeRenderer(), size: size)
+        let size = key.size
+        let data = LUTBaker.filmLUT(try key.pipeline.makeRenderer(), size: size)
         let descriptor = MTLTextureDescriptor()
         descriptor.textureType = .type3D
         descriptor.pixelFormat = .rgba16Float

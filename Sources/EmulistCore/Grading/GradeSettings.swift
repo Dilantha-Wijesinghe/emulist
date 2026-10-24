@@ -46,6 +46,13 @@ public struct GradeSettings: Codable, Equatable, Sendable {
     public var cameraProfile: CameraProfile { CameraProfile.with(id: cameraProfileID) ?? .appleLog }
     public var stock: FilmStock { FilmStock.with(id: stockID) ?? FilmStock.builtIn[0] }
 
+    /// Factory settings with this grade's stock and its recommended texture: what each control resets to.
+    public var defaults: GradeSettings {
+        var defaults = GradeSettings()
+        defaults.select(stock)
+        return defaults
+    }
+
     /// Selects a stock and loads its recommended texture and light settings.
     public mutating func select(_ stock: FilmStock) {
         stockID = stock.id

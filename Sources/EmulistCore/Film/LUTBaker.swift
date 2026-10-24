@@ -4,6 +4,8 @@ import Foundation
 /// the GPU only interpolates.
 public enum LUTBaker {
     public static let filmLUTSize = 65
+    /// A coarser grid that bakes about 8× faster, for previews while a look control is being dragged.
+    public static let draftLUTSize = 33
     public static let transferLUTSize = 4096
 
     /// 3D LUT over the log shaper (see `WorkingSpace`), RGBA half floats, red varying fastest.

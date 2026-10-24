@@ -36,6 +36,7 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         var settings: GradeSettings
         var beforeSplit: Double
         var scale: Double
+        var draft: Bool
         var drawableSize: CGSize
     }
 
@@ -74,6 +75,7 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
     }
 
     @objc private func step(_ link: CADisplayLink) {
+        workspace.flushContinuousEdit()
         guard let view, view.window?.occlusionState.contains(.visible) == true else { return }
         view.draw()
     }
@@ -108,7 +110,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         let settings = workspace.settings
         let state = RenderState(
             frame: frameSerial, settings: settings, beforeSplit: workspace.beforeSplit,
-            scale: workspace.quality.scale(shortSide: min(media.width, media.height)), drawableSize: view.drawableSize)
+            scale: workspace.quality.scale(shortSide: min(media.width, media.height)), draft: workspace.isContinuousEdit,
+            drawableSize: view.drawableSize)
         guard state != lastState else { return }
 
         let colorSpace = settings.output.colorSpace
@@ -119,7 +122,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         do {
             let image = try renderer.encode(
                 frame.buffer, frameIndex: frame.frameIndex, settings: settings,
-                options: .init(scale: state.scale, beforeSplit: state.beforeSplit, orientation: media.transform),
+                options: .init(scale: state.scale, beforeSplit: state.beforeSplit, orientation: media.transform,
+                               draft: state.draft),
                 into: commandBuffer)
             let rect = aspectFitRect(content: CGSize(width: image.width, height: image.height), in: view.drawableSize)
             renderer.present(image, in: rect, pass: pass, into: commandBuffer)

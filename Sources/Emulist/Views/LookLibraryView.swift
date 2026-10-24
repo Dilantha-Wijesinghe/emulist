@@ -37,6 +37,7 @@ struct LookLibraryView: View {
                                              isSelected: workspace.settings.stockID == look.id) {
                                         workspace.select(look)
                                     }
+                                    .equatable()
                                 }
                             }
                         }
@@ -52,12 +53,16 @@ struct LookLibraryView: View {
     }
 }
 
-private struct LookTile: View {
+private struct LookTile: View, Equatable {
     let look: FilmStock
     let image: CGImage?
     let isSelected: Bool
     let action: () -> Void
     @State private var isHovering = false
+
+    nonisolated static func == (a: LookTile, b: LookTile) -> Bool {
+        a.look.id == b.look.id && a.image === b.image && a.isSelected == b.isSelected
+    }
 
     var body: some View {
         Button(action: action) {
