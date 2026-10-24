@@ -55,8 +55,10 @@ struct AppCommands: Commands {
             Button("Save Project As…") { workspace.saveAs() }.keyboardShortcut("s", modifiers: [.command, .shift])
                 .disabled(workspace.clips.isEmpty)
             Divider()
-            Button("Export…") { workspace.isExportSheetPresented = true }.keyboardShortcut("e")
+            Button("Export…") { workspace.presentExport(.selectedClip) }.keyboardShortcut("e")
                 .disabled(workspace.media == nil)
+            Button("Export All Clips…") { workspace.presentExport(.allClips) }.keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(workspace.clips.count < 2 || !workspace.clips.contains { $0.media != nil })
         }
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") { workspace.undo() }.keyboardShortcut("z").disabled(!workspace.canUndo)

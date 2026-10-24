@@ -8,6 +8,12 @@ enum CompareMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// What the export sheet exports.
+enum ExportScope: String, CaseIterable, Identifiable {
+    case selectedClip, allClips
+    var id: String { rawValue }
+}
+
 enum PreviewQuality: String, CaseIterable, Identifiable {
     case full, half, quarter
     var id: String { rawValue }
@@ -81,6 +87,7 @@ final class Workspace {
     var quality = PreviewQuality.full
     var alert: AppAlert?
     var isExportSheetPresented = false
+    var exportScope = ExportScope.selectedClip
     var isPasteSheetPresented = false
     var lookDraft: LookDraft?
     private(set) var isLoading = false
@@ -523,6 +530,13 @@ final class Workspace {
         clips[index].history = history
     }
 
+    /// Every clip with its grade as it stands now, the selected clip's working copy included.
+    func clipsForExport() -> [Clip] {
+        flushContinuousEdit()
+        syncSelectedClip()
+        return clips
+    }
+
     private var thumbnailItems: [(id: UUID, media: MediaInfo, settings: GradeSettings)] {
         clips.compactMap { clip in
             clip.media.map { (clip.id, $0, clip.id == selectedClipID ? settings : clip.settings) }
@@ -537,6 +551,11 @@ final class Workspace {
     }
 
     // MARK: Saving
+
+    func presentExport(_ scope: ExportScope) {
+        exportScope = scope
+        isExportSheetPresented = true
+    }
 
     func save() {
         if let projectURL { write(to: projectURL) } else { saveAs() }

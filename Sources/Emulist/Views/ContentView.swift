@@ -86,7 +86,7 @@ struct ContentView: View {
                 Button { workspace.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
                     .disabled(!workspace.canRedo)
                     .help("Redo (⇧⌘Z)")
-                Button { workspace.isExportSheetPresented = true } label: {
+                Button { workspace.presentExport(.selectedClip) } label: {
                     Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .help("Export (⌘E)")

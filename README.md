@@ -49,7 +49,10 @@ along the bottom.
 8. **My Looks.** *Save Current Look…* (the + in the library, or Grade › Save Look…) stores the parts of a grade you
    choose. Saved looks appear at the top of the library, rendered live on your frame; click one to apply it.
    Right-click to rename or delete. They're kept in `~/Library/Application Support/Emulist/Presets`.
-9. **Export** (⌘E) the current clip: ProRes 422 HQ, HEVC 10-bit or H.264, with audio.
+9. **Export** (⌘E) the current clip: ProRes 422 HQ, HEVC 10-bit or H.264, with audio. **Export All Clips…** (⇧⌘E,
+   or *All Clips* in the export sheet) renders every clip with its own grade into a folder you choose, one after
+   another, named "clip – look". A name that's taken gets " 2", " 3", so no file (the footage included) is ever
+   replaced. Clips whose footage is missing are skipped and listed. Stop ends the current export and the rest.
 10. **Save** the session as an `.emulist` project (⌘S): every clip, its grade and its snapshots. Saved projects
    autosave, an unsaved session asks before it's closed or the app quits, footage is never modified, and a clip whose footage moved waits to be relinked without blocking the
    others. Projects from earlier versions open as a single clip.
@@ -63,7 +66,8 @@ to type one. Each drag or scroll burst is one undo step.
 | Space | Play / pause |
 | ← / → | Previous / next frame |
 | B, ⇧B | Before / after, split compare |
-| ⌘O, ⌘S, ⇧⌘S, ⌘E | Add clips or open a project, save, save as, export |
+| ⌘O, ⌘S, ⇧⌘S | Add clips or open a project, save, save as |
+| ⌘E, ⇧⌘E | Export the current clip, export all clips |
 | ⌘Z, ⇧⌘Z | Undo, redo for the current clip (each slider drag is one step) |
 | ⌥⌘C, ⌥⌘V, ⇧⌥⌘V | Copy grade, paste grade, paste chosen parts |
 | ⌥⌘S | Take a snapshot |
