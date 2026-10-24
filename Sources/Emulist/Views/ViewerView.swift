@@ -3,11 +3,12 @@ import MetalKit
 import SwiftUI
 
 /// The color-managed GPU viewer. Each display refresh it pulls the newest decoded frame and re-renders
-/// only when the frame, the grade, the compare state or the view size changed.
+/// only when the frame, the grade, the compare state, the view size or the scopes on screen changed.
 struct ViewerView: NSViewRepresentable {
     let workspace: Workspace
+    let scopes: ScopeDisplays
 
-    func makeCoordinator() -> ViewerCoordinator { ViewerCoordinator(workspace: workspace) }
+    func makeCoordinator() -> ViewerCoordinator { ViewerCoordinator(workspace: workspace, scopes: scopes) }
 
     func makeNSView(context: Context) -> MTKView {
         let view = MTKView()
@@ -39,6 +40,7 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         var draft: Bool
         var drawableSize: CGSize
         var reference: Reference?
+        var scopes: [ScopeKind: CGSize]
     }
 
     /// What the left of a wipe against another clip shows.
@@ -57,6 +59,7 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
 
     let renderer: FrameRenderer?
     private let workspace: Workspace
+    private let scopes: ScopeDisplays
     private var frame: (buffer: CVPixelBuffer, frameIndex: Int)?
     private var frameSerial = 0
     /// The clip on screen: switching clips resets the frame, even between two clips of the same file.
@@ -73,8 +76,9 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
     private lazy var referenceRenderer = renderer.map { FrameRenderer(context: $0.context, lutCacheCapacity: 2) }
     private var referenceImage: (key: ReferenceKey, texture: MTLTexture)?
 
-    init(workspace: Workspace) {
+    init(workspace: Workspace, scopes: ScopeDisplays) {
         self.workspace = workspace
+        self.scopes = scopes
         renderer = (try? MetalContext.make()).map { FrameRenderer(context: $0) }
         super.init()
         if renderer == nil {
@@ -135,7 +139,8 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
             frame: frameSerial, settings: settings, beforeSplit: workspace.beforeSplit,
             scale: workspace.quality.scale(shortSide: min(media.width, media.height)), draft: workspace.isContinuousEdit,
             drawableSize: view.drawableSize,
-            reference: workspace.referenceClip.map { Reference(clipID: $0.id, settings: $0.settings, split: workspace.splitPosition) })
+            reference: workspace.referenceClip.map { Reference(clipID: $0.id, settings: $0.settings, split: workspace.splitPosition) },
+            scopes: scopes.sizes)
         guard state != lastState else { return }
 
         let colorSpace = settings.output.colorSpace
@@ -154,8 +159,9 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
                 image = try renderer.wipe(image, reference: referenceTexture, split: reference.split, into: commandBuffer)
             }
             let rect = aspectFitRect(content: CGSize(width: image.width, height: image.height), in: view.drawableSize)
-            renderer.present(image, in: rect, pass: pass, into: commandBuffer)
+            renderer.context.present(image, in: rect, pass: pass, into: commandBuffer)
             commandBuffer.present(drawable)
+            if !state.scopes.isEmpty { try scopes.draw(image, into: commandBuffer) }
             lastState = state
         } catch {
             lastState = state

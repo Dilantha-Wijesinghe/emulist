@@ -44,6 +44,7 @@ struct AppCommands: Commands {
     @FocusedValue(\.isTypingValue) private var isTyping
 
     private var noClip: Bool { workspace.media == nil }
+    private var layout: WindowLayout { workspace.layout }
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -106,6 +107,16 @@ struct AppCommands: Commands {
             Button("Split Before / After") { workspace.toggleSplit() }
                 .keyboardShortcut("b", modifiers: [.shift])
                 .disabled(workspace.media == nil || isTyping == true)
+            Divider()
+            Button(layout.showsLibrary ? "Hide Looks Library" : "Show Looks Library") { layout.showsLibrary.toggle() }
+                .keyboardShortcut("l").disabled(noClip || layout.isCinema)
+            Button(layout.showsScopes ? "Hide Scopes" : "Show Scopes") { layout.showsScopes.toggle() }
+                .keyboardShortcut("k", modifiers: [.command, .shift]).disabled(noClip || layout.isCinema)
+            Button(layout.isCinema ? "Exit Cinema Viewer" : "Cinema Viewer") { layout.toggleCinema() }
+                .keyboardShortcut("f").disabled(noClip)
+            if layout.isCinema {
+                Button("Exit Cinema Viewer") { layout.endCinema() }.keyboardShortcut(.escape, modifiers: [])
+            }
             Divider()
         }
     }

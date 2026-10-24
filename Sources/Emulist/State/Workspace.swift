@@ -62,6 +62,7 @@ final class Workspace {
     let playback = PlaybackController()
     let thumbnails = LibraryThumbnails()
     let clipThumbnails = ClipThumbnails()
+    let layout = WindowLayout()
 
     // Session
     private(set) var clips: [Clip] = []

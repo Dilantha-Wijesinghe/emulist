@@ -18,6 +18,7 @@ enum Theme {
     static let tertiaryText = Color.white.opacity(0.32)
 
     static let libraryWidth: CGFloat = 240
+    static let scopesWidth: CGFloat = 290
     static let cornerRadius: CGFloat = 8
 
     static let monoDigits = Font.system(size: 10.5, weight: .medium).monospacedDigit()

@@ -232,6 +232,96 @@ enum ShaderSource {
         out.write(inside ? float4(reference.sample(linearClamp, r).rgb, 1) : float4(0, 0, 0, 1), gid);
     }
 
+    // MARK: Scopes
+
+    struct ScopeUniforms {
+        float4 luma;    // xyz: Y' weights of the display signal
+        float4 chroma;  // x: Cb per (B' - Y'), y: Cr per (R' - Y'), z: Cb/Cr at the vectorscope's edge
+        uint4 bins;     // x: waveform columns, y: levels, z: vectorscope bins per side
+        float4 draw;    // x: 1 for the RGB parade, y/z: waveform/vectorscope count of a strong trace
+    };
+
+    // One sample of the image per thread: binned into four waveforms (R', G', B', Y') by column and level,
+    // and into the Cb/Cr histogram. Mirrors ScopeRenderer.level and vectorBin.
+    kernel void scope_analyze(texture2d<float, access::sample> image [[texture(0)]],
+                              device atomic_uint *wave [[buffer(0)]],
+                              device atomic_uint *vector [[buffer(1)]],
+                              constant ScopeUniforms &u [[buffer(2)]],
+                              uint2 gid [[thread_position_in_grid]],
+                              uint2 grid [[threads_per_grid]]) {
+        float2 uv = (float2(gid) + 0.5) / float2(grid);
+        float3 rgb = saturate(image.sample(linearClamp, uv).rgb);
+        float y = dot(rgb, u.luma.xyz);
+        float4 values = float4(rgb, y);
+        uint columns = u.bins.x, levels = u.bins.y, n = u.bins.z;
+        uint column = min(uint(uv.x * columns), columns - 1);
+        for (uint c = 0; c < 4; c++) {
+            uint level = min(uint(values[c] * levels), levels - 1);
+            atomic_fetch_add_explicit(&wave[(level * columns + column) * 4 + c], 1u, memory_order_relaxed);
+        }
+        float2 point = float2((rgb.b - y) * u.chroma.x, (rgb.r - y) * u.chroma.y) / u.chroma.z;
+        uint2 bin = uint2(clamp((point * 0.5f + 0.5f) * float(n), 0.0f, float(n - 1)));
+        atomic_fetch_add_explicit(&vector[bin.y * n + bin.x], 1u, memory_order_relaxed);
+    }
+
+    // The bins [lo, hi) a pixel covers along one axis, at least one: every sample shows at any scope size.
+    static uint2 covered(float from, float to, uint count) {
+        uint lo = min(uint(max(from, 0.0f) * count), count - 1);
+        return uint2(lo, max(lo + 1, min(count, uint(max(to, 0.0f) * count))));
+    }
+
+    static float trace(float count, float strong) { return 1 - exp(-count / strong); }
+
+    // Waveform (Y') or RGB parade (R', G', B' side by side); level 0 at the bottom.
+    kernel void scope_waveform(texture2d<float, access::write> out [[texture(0)]],
+                               device const uint *wave [[buffer(0)]],
+                               constant ScopeUniforms &u [[buffer(1)]],
+                               uint2 gid [[thread_position_in_grid]]) {
+        uint w = out.get_width(), h = out.get_height();
+        if (gid.x >= w || gid.y >= h) return;
+        bool parade = u.draw.x > 0;
+        float segments = parade ? 3 : 1;
+        uint segment = min(uint(float(gid.x) / w * segments), uint(segments) - 1);
+        uint2 columns = covered(float(gid.x) / w * segments - segment, float(gid.x + 1) / w * segments - segment, u.bins.x);
+        uint2 levels = covered(1 - float(gid.y + 1) / h, 1 - float(gid.y) / h, u.bins.y);
+        uint channel = parade ? segment : 3;
+        float count = 0;
+        for (uint l = levels.x; l < levels.y; l++) {
+            for (uint c = columns.x; c < columns.y; c++) count += float(wave[(l * u.bins.x + c) * 4 + channel]);
+        }
+        count /= float((levels.y - levels.x) * (columns.y - columns.x));
+        const float3 colors[4] = { float3(1, 0.32, 0.28), float3(0.35, 1, 0.42), float3(0.4, 0.58, 1), float3(0.86, 0.92, 0.86) };
+        out.write(float4(colors[channel] * trace(count, u.draw.y), 1), gid);
+    }
+
+    // Vectorscope: +Cb to the right, +Cr up, each trace in the hue it plots.
+    kernel void scope_vector(texture2d<float, access::write> out [[texture(0)]],
+                             device const uint *vector [[buffer(0)]],
+                             constant ScopeUniforms &u [[buffer(1)]],
+                             uint2 gid [[thread_position_in_grid]]) {
+        uint w = out.get_width(), h = out.get_height();
+        if (gid.x >= w || gid.y >= h) return;
+        float side = float(min(w, h));
+        float2 origin = (float2(w, h) - side) * 0.5f;
+        // Scope coordinates (0...1 across the scope's square, y up) of the pixel's edges.
+        float2 lo = (float2(gid) - origin) / side, hi = (float2(gid + 1) - origin) / side;
+        if (any(hi <= 0.0f) || any(lo >= 1.0f)) { out.write(float4(0, 0, 0, 1), gid); return; }
+        uint n = u.bins.z;
+        uint2 columns = covered(lo.x, hi.x, n), rows = covered(1 - hi.y, 1 - lo.y, n);
+        float count = 0;
+        for (uint r = rows.x; r < rows.y; r++) {
+            for (uint c = columns.x; c < columns.y; c++) count += float(vector[r * n + c]);
+        }
+        count /= float((rows.y - rows.x) * (columns.y - columns.x));
+        // The hue at this point: Y' 0.5 plus the point's chroma, softened toward white near the center.
+        float2 center = lo + hi;  // twice the pixel's center, 0...2
+        float2 cbcr = float2(center.x - 1, 1 - center.y) * u.chroma.z;
+        float r = 0.5f + cbcr.y / u.chroma.y, b = 0.5f + cbcr.x / u.chroma.x;
+        float g = (0.5f - u.luma.x * r - u.luma.z * b) / u.luma.y;
+        float3 hue = mix(float3(0.9f), saturate(float3(r, g, b)), 0.7f);
+        out.write(float4(hue * trace(count, u.draw.z), 1), gid);
+    }
+
     // MARK: Utilities
 
     kernel void copy_texture(texture2d<float, access::read> src [[texture(0)]],

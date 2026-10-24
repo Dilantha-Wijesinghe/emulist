@@ -134,18 +134,6 @@ public final class FrameRenderer: @unchecked Sendable {
         commandBuffer.retain(target)
     }
 
-    /// Draws `image` into a render pass (e.g. a view's drawable), scaled into `rect` (in drawable pixels).
-    public func present(_ image: MTLTexture, in rect: CGRect, pass: MTLRenderPassDescriptor,
-                        into commandBuffer: MTLCommandBuffer) {
-        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
-        encoder.setViewport(MTLViewport(
-            originX: rect.minX, originY: rect.minY, width: rect.width, height: rect.height, znear: 0, zfar: 1))
-        encoder.setRenderPipelineState(context.presentPipeline)
-        encoder.setFragmentTexture(image, index: 0)
-        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-        encoder.endEncoding()
-    }
-
     // MARK: Passes
 
     private func decode(_ pixelBuffer: CVPixelBuffer, settings: GradeSettings, orientation: CGAffineTransform,

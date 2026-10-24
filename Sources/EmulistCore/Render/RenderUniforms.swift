@@ -41,6 +41,13 @@ struct GradeUniforms {
     var luminance: SIMD4<Float>
 }
 
+struct ScopeUniforms {
+    var luma: SIMD4<Float>
+    var chroma: SIMD4<Float>   // x: Cb per (B' − Y'), y: Cr per (R' − Y'), z: Cb/Cr at the vectorscope's edge
+    var bins: SIMD4<UInt32>    // x: waveform columns, y: levels, z: vectorscope bins per side
+    var draw: SIMD4<Float>     // x: 1 for the RGB parade, y/z: waveform/vectorscope count of a strong trace
+}
+
 extension PrimaryGrade {
     /// The grade as shader uniforms: the GPU runs the same steps as `apply(_:)`, with every constant from here.
     var uniforms: GradeUniforms {

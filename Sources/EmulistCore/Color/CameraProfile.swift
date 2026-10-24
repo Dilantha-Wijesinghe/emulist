@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 /// How a camera encodes its image: transfer function, gamut and the Y'CbCr matrix it records with.
 public struct CameraProfile: Identifiable, Hashable, Sendable {
@@ -11,6 +12,27 @@ public struct CameraProfile: Identifiable, Hashable, Sendable {
             case .rec709: (0.2126, 0.0722)
             case .rec2020: (0.2627, 0.0593)
             }
+        }
+
+        /// Y' weights of R', G' and B'.
+        public var lumaWeights: RGB {
+            let (kr, kb) = coefficients
+            return RGB(kr, 1 - kr - kb, kb)
+        }
+
+        /// (Cb, Cr) of an R'G'B' signal: each within ±0.5 for colors inside the cube.
+        public func chroma(_ rgb: RGB) -> SIMD2<Double> {
+            let (kr, kb) = coefficients
+            let y = simd_dot(rgb, lumaWeights)
+            return SIMD2((rgb.z - y) / (2 * (1 - kb)), (rgb.x - y) / (2 * (1 - kr)))
+        }
+
+        /// The R'G'B' offset of a (Cb, Cr) chroma at zero Y': the inverse of `chroma`.
+        public func rgb(cb: Double, cr: Double) -> RGB {
+            let (kr, kb) = coefficients
+            let r = 2 * (1 - kr) * cr
+            let b = 2 * (1 - kb) * cb
+            return RGB(r, -(kr * r + kb * b) / (1 - kr - kb), b)
         }
     }
 

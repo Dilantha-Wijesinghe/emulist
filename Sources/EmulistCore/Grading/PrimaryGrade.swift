@@ -46,20 +46,16 @@ public struct ColorWheel: Codable, Hashable, Sendable {
 
     /// The wheel whose `rgb(kind)` is `rgb` (the puck may land outside the unit disk for extreme values).
     public init(rgb: RGB, kind: Kind) {
-        let master = simd_dot(rgb, Self.lumaWeights)
-        let c = (rgb - RGB(repeating: master)) / kind.chromaScale
-        self.init(x: c.z / (2 * (1 - Self.kb)), y: c.x / (2 * (1 - Self.kr)), master: master)
+        let master = simd_dot(rgb, Self.ycbcr.lumaWeights)
+        let c = Self.ycbcr.chroma(rgb / kind.chromaScale)
+        self.init(x: c.x, y: c.y, master: master)
     }
 
-    static let kr = 0.2126, kb = 0.0722
-    static let lumaWeights = RGB(kr, 1 - kr - kb, kb)
+    /// The vectorscope the wheels are oriented like.
+    static let ycbcr = CameraProfile.YCbCrMatrix.rec709
 
     /// RGB direction of a (Cb, Cr) chroma vector. Also gives the hue drawn at each angle of the wheel.
-    public static func chroma(cb: Double, cr: Double) -> RGB {
-        let r = 2 * (1 - kr) * cr
-        let b = 2 * (1 - kb) * cb
-        return RGB(r, -(kr * r + kb * b) / (1 - kr - kb), b)
-    }
+    public static func chroma(cb: Double, cr: Double) -> RGB { ycbcr.rgb(cb: cb, cr: cr) }
 }
 
 /// The primary grade, applied per pixel to log exposure *before* the look (like grading under a LUT

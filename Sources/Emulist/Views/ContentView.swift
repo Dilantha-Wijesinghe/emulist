@@ -5,29 +5,47 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @Bindable var workspace: Workspace
     @State private var isDropTargeted = false
+    @State private var scopes = ScopeDisplays()
+
+    private var layout: WindowLayout { workspace.layout }
 
     var body: some View {
         Group {
             if let media = workspace.media {
-                // The color page: looks | viewer above, grading palettes below.
+                // The color page: looks | viewer | scopes above, grading palettes below. The cinema viewer
+                // hides everything but the image; the viewer keeps its place, so it isn't rebuilt.
+                let chrome = !layout.isCinema
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
-                        LookLibraryView(workspace: workspace)
-                        separator.frame(width: 1)
+                        if chrome && layout.showsLibrary {
+                            LookLibraryView(workspace: workspace)
+                            separator.frame(width: 1)
+                        }
                         VStack(spacing: 0) {
-                            ZStack {
-                                Theme.viewer
-                                ViewerView(workspace: workspace)
-                                CompareOverlay(workspace: workspace, contentSize: CGSize(width: media.width, height: media.height))
+                            HStack(spacing: 0) {
+                                ZStack {
+                                    Theme.viewer
+                                    ViewerView(workspace: workspace, scopes: scopes)
+                                    CompareOverlay(workspace: workspace, contentSize: CGSize(width: media.width, height: media.height))
+                                    if layout.isCinema { CinemaHint() }
+                                }
+                                if chrome && layout.showsScopes {
+                                    separator.frame(width: 1)
+                                    ScopesPanel(layout: layout, displays: scopes)
+                                }
                             }
-                            separator.frame(height: 1)
-                            TransportBar(workspace: workspace)
-                            clipStrip
+                            if chrome {
+                                separator.frame(height: 1)
+                                TransportBar(workspace: workspace)
+                                clipStrip
+                            }
                         }
                     }
-                    separator.frame(height: 1)
-                    GradingPanel(workspace: workspace)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if chrome {
+                        separator.frame(height: 1)
+                        GradingPanel(workspace: workspace)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             } else {
                 VStack(spacing: 0) {
@@ -39,6 +57,8 @@ struct ContentView: View {
         .background(Theme.window)
         .background(WindowTitle(workspace: workspace))
         .toolbar { toolbar }
+        .toolbar(layout.isCinema && workspace.media != nil ? .hidden : .automatic, for: .windowToolbar)
+        .ignoresSafeArea(.container, edges: layout.isCinema ? .top : [])
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted, perform: drop)
         .sheet(isPresented: $workspace.isExportSheetPresented) { ExportSheet(workspace: workspace) }
         .sheet(isPresented: $workspace.needsProfileConfirmation) { ProfileSheet(workspace: workspace) }
@@ -62,7 +82,13 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
+        ToolbarItemGroup(placement: .navigation) {
+            if workspace.media != nil {
+                Toggle(isOn: Binding(get: { layout.showsLibrary }, set: { layout.showsLibrary = $0 })) {
+                    Label("Looks", systemImage: "sidebar.left")
+                }
+                .help(layout.showsLibrary ? "Hide the looks library (⌘L)" : "Show the looks library (⌘L)")
+            }
             Button { workspace.presentOpenPanel() } label: { Label("Add Clips", systemImage: "plus") }
                 .help("Add clips, or open a project (⌘O)")
         }
@@ -78,6 +104,14 @@ struct ContentView: View {
                     Label("Split", systemImage: "rectangle.split.2x1")
                 }
                 .help("Split before / after, drag the divider to wipe (⇧B)")
+                Toggle(isOn: Binding(get: { layout.showsScopes }, set: { layout.showsScopes = $0 })) {
+                    Label("Scopes", systemImage: "waveform.path.ecg.rectangle")
+                }
+                .help(layout.showsScopes ? "Hide the scopes (⇧⌘K)" : "Show waveform, parade and vectorscope (⇧⌘K)")
+                Button { layout.beginCinema() } label: {
+                    Label("Cinema Viewer", systemImage: "arrow.up.left.and.arrow.down.right")
+                }
+                .help("Only the picture, full screen (⌘F; Esc to leave)")
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 SnapshotsMenu(workspace: workspace)
@@ -105,6 +139,29 @@ struct ContentView: View {
             workspace.open(urls)
         }
         return true
+    }
+}
+
+/// Says how to leave the cinema viewer, then fades away.
+private struct CinemaHint: View {
+    @State private var isVisible = true
+
+    var body: some View {
+        VStack {
+            Text("Esc to leave the cinema viewer")
+                .font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(.black.opacity(0.55), in: Capsule())
+                .foregroundStyle(.white.opacity(0.8))
+                .padding(.top, 18)
+            Spacer()
+        }
+        .opacity(isVisible ? 1 : 0)
+        .allowsHitTesting(false)
+        .task {
+            try? await Task.sleep(for: .seconds(2.5))
+            withAnimation(.easeOut(duration: 0.6)) { isVisible = false }
+        }
     }
 }
 

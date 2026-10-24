@@ -1,3 +1,4 @@
+import CoreGraphics
 import CoreVideo
 import Metal
 
@@ -40,7 +41,8 @@ public final class MetalContext: @unchecked Sendable {
         let library = try Self.makeLibrary(device: device)
 
         var pipelines: [String: MTLComputePipelineState] = [:]
-        for name in ["input_transform", "effects_prefilter", "grain_generate", "film_render", "reference_wipe", "copy_texture"] {
+        for name in ["input_transform", "effects_prefilter", "grain_generate", "film_render", "reference_wipe", "copy_texture",
+                     "scope_analyze", "scope_waveform", "scope_vector"] {
             guard let function = library.makeFunction(name: name) else { throw RenderError.shaderCompilation(name) }
             pipelines[name] = try device.makeComputePipelineState(function: function)
         }
@@ -71,6 +73,18 @@ public final class MetalContext: @unchecked Sendable {
         } catch {
             throw RenderError.shaderCompilation(error.localizedDescription)
         }
+    }
+
+    /// Draws `image` into a render pass (e.g. a view's drawable), scaled into `rect` (in drawable pixels).
+    public func present(_ image: MTLTexture, in rect: CGRect, pass: MTLRenderPassDescriptor,
+                        into commandBuffer: MTLCommandBuffer) {
+        guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
+        encoder.setViewport(MTLViewport(
+            originX: rect.minX, originY: rect.minY, width: rect.width, height: rect.height, znear: 0, zfar: 1))
+        encoder.setRenderPipelineState(presentPipeline)
+        encoder.setFragmentTexture(image, index: 0)
+        encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        encoder.endEncoding()
     }
 
     func pipeline(_ name: String) -> MTLComputePipelineState { computePipelines[name]! }

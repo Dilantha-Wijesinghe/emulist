@@ -40,6 +40,12 @@ along the bottom.
    To match shots, right-click another clip in the strip and choose **Compare with This Clip**: its graded frame
    (the one on its thumbnail) fills the left of the wipe, fitted inside the frame. Switching clips, `B`, `⇧B` or
    removing that clip ends the comparison.
+   **Scopes** (the toolbar's scope button, or ⇧⌘K) open beside the viewer: a **waveform** or **RGB parade**
+   (0–1023, like Resolve) above a **vectorscope** with 75% color bar targets and a skin-tone line. They read the
+   picture exactly as the viewer shows it, a split or wipe included, so the parade's columns line up with the
+   image. They're computed on the GPU from the frame on screen, and cost nothing while hidden.
+   For more room, hide the looks library (⌘L), or press ⌘F for the **cinema viewer**: only the picture, full
+   screen, with playback still on Space and the arrows. Esc brings everything back.
 6. **Work across clips.** With two or more clips a strip appears under the viewer, with a live graded thumbnail
    per clip. Click a clip to grade it; each clip keeps its own grade and its own undo history.
    - **Copy Grade** (⌥⌘C) and **Paste Grade** (⌥⌘V). ⌘-click clips in the strip to pick several, and one paste
@@ -69,6 +75,7 @@ to type one. Each drag or scroll burst is one undo step.
 | Space | Play / pause |
 | ← / → | Previous / next frame |
 | B, ⇧B | Before / after, split compare |
+| ⇧⌘K, ⌘L, ⌘F | Show scopes, hide the looks library, cinema viewer (Esc leaves it) |
 | ⌘O, ⌘S, ⇧⌘S | Add clips or open a project, save, save as |
 | ⌘E, ⇧⌘E | Export the current clip, export all clips |
 | ⌘Z, ⇧⌘Z | Undo, redo for the current clip (each slider drag is one step) |
@@ -166,6 +173,7 @@ decode (10-bit Y'CbCr, no OS color conversion)
   → look LUT (65³, baked in Swift; 33³ while a look control is dragged):
       film (negative → print → gamut map)  or  external LUT (via its camera encoding)
       → fade → encode
+  → scopes, when shown: one GPU pass bins the displayed frame, each scope is drawn from the bins
 ```
 
 - **Color math lives in Swift** (`FilmModel`, `TransferFunction`, `ColorMath`, `PrimaryGrade`) and is

@@ -236,7 +236,7 @@ import simd
     @Test func wheelRGBRoundTripsAndIsLumaNeutral() {
         let wheel = ColorWheel(x: 0.4, y: -0.3, master: 0.05)
         let rgb = wheel.rgb(.gamma)
-        #expect(abs(simd_dot(rgb, ColorWheel.lumaWeights) - 0.05) < 1e-12)
+        #expect(abs(simd_dot(rgb, ColorWheel.ycbcr.lumaWeights) - 0.05) < 1e-12)
         let back = ColorWheel(rgb: rgb, kind: .gamma)
         #expect(abs(back.x - 0.4) < 1e-12 && abs(back.y + 0.3) < 1e-12 && abs(back.master - 0.05) < 1e-12)
     }
