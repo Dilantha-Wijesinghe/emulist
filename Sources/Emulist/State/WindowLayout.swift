@@ -15,6 +15,10 @@ final class WindowLayout {
     var traceScope = ScopeKind(rawValue: UserDefaults.standard.string(forKey: "traceScope") ?? "") ?? .parade {
         didSet { UserDefaults.standard.set(traceScope.rawValue, forKey: "traceScope") }
     }
+    /// Resting the pointer on a look shows it in the viewer.
+    var previewsLooksOnHover = WindowLayout.saved("previewsLooksOnHover", default: true) {
+        didSet { UserDefaults.standard.set(previewsLooksOnHover, forKey: "previewsLooksOnHover") }
+    }
     /// Only the image, full screen.
     private(set) var isCinema = false
     /// Whether entering the cinema viewer put the window into full screen (so leaving it should undo that).

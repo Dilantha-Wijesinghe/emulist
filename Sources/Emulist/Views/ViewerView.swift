@@ -134,10 +134,12 @@ final class ViewerCoordinator: NSObject, MTKViewDelegate {
         if wasPlaying, !playback.isPlaying { workspace.thumbnails.frameChanged(frame.buffer) }
         wasPlaying = playback.isPlaying
 
-        let settings = workspace.settings
+        // A previewed look bakes on the draft grid, so resting on tile after tile stays quick.
+        let settings = workspace.viewedSettings
         let state = RenderState(
             frame: frameSerial, settings: settings, beforeSplit: workspace.beforeSplit,
-            scale: workspace.quality.scale(shortSide: min(media.width, media.height)), draft: workspace.isContinuousEdit,
+            scale: workspace.quality.scale(shortSide: min(media.width, media.height)),
+            draft: workspace.isContinuousEdit || workspace.preview != nil,
             drawableSize: view.drawableSize,
             reference: workspace.referenceClip.map { Reference(clipID: $0.id, settings: $0.settings, split: workspace.splitPosition) },
             scopes: scopes.sizes)

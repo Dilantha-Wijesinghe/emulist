@@ -27,6 +27,7 @@ struct ContentView: View {
                                     Theme.viewer
                                     ViewerView(workspace: workspace, scopes: scopes)
                                     CompareOverlay(workspace: workspace, contentSize: CGSize(width: media.width, height: media.height))
+                                    PreviewBadge(workspace: workspace)
                                     if layout.isCinema { CinemaHint() }
                                 }
                                 if chrome && layout.showsScopes {
@@ -139,6 +140,26 @@ struct ContentView: View {
             workspace.open(urls)
         }
         return true
+    }
+}
+
+/// Names the look previewed from the library (its own view, so a preview redraws only this).
+private struct PreviewBadge: View {
+    let workspace: Workspace
+
+    var body: some View {
+        if let preview = workspace.preview {
+            VStack {
+                Spacer()
+                Text("PREVIEW · \(preview.name.uppercased()) · CLICK TO APPLY")
+                    .font(.system(size: 9, weight: .bold)).tracking(1.2)
+                    .padding(.horizontal, 9).padding(.vertical, 5)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .foregroundStyle(Theme.accent)
+                    .padding(.bottom, 14)
+            }
+            .allowsHitTesting(false)
+        }
     }
 }
 

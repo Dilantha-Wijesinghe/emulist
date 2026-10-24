@@ -63,6 +63,7 @@ final class Workspace {
     let thumbnails = LibraryThumbnails()
     let clipThumbnails = ClipThumbnails()
     let layout = WindowLayout()
+    let marks = LibraryMarks()
 
     // Session
     private(set) var clips: [Clip] = []
@@ -90,6 +91,10 @@ final class Workspace {
     /// Built-in recipe looks; empty until the Fujifilm simulations they build on are installed.
     private(set) var recipes = RecipeLook.fujiXWeekly(in: LookLibrary.shared.all)
     private(set) var isInstallingFujifilm = false
+    /// A library item shown in the viewer while the pointer rests on its tile. The grade is untouched.
+    private(set) var preview: LibraryItem?
+    @ObservationIgnored private var previewTask: Task<Void, Never>?
+    @ObservationIgnored private var previewCandidate: String?
     /// A grade copied with Copy Grade, waiting to be pasted.
     private(set) var copiedGrade: GradeSettings?
     /// The groups Paste Grade copies; remembered between launches.
@@ -181,7 +186,7 @@ final class Workspace {
     }
 
     func select(_ stock: FilmStock) {
-        edit { $0.select(stock) }
+        apply(LibraryItem(source: .look(stock)))
     }
 
     /// Returns the wheels and the adjustments under them to neutral, in one undo step.
@@ -271,9 +276,9 @@ final class Workspace {
         cubeDraft = draft(from: source, name: name)
     }
 
-    /// A look applied as its thumbnail shows it: on top of the current grade.
-    func exportCube(_ preset: GradePreset) {
-        exportCube(from: preset.applied(to: settings), name: preset.name)
+    /// A library item applied as its thumbnail shows it: on top of the current grade.
+    func exportCube(_ item: LibraryItem) {
+        exportCube(from: item.applied(to: settings), name: item.name)
     }
 
     private func draft(from source: GradeSettings?, name: String?) -> LookDraft {
@@ -285,8 +290,34 @@ final class Workspace {
         store(GradePreset(name: name, groups: groups, settings: settings))
     }
 
-    func apply(_ preset: GradePreset) {
-        edit { $0 = preset.applied(to: $0) }
+    /// Applies a look, saved look or recipe to the current grade (one undo step).
+    func apply(_ item: LibraryItem) {
+        endPreview()
+        edit { $0 = item.applied(to: $0) }
+        marks.used(item.id)
+    }
+
+    /// The grade the viewer shows: the previewed item on the current grade, or the grade itself.
+    var viewedSettings: GradeSettings { preview?.applied(to: settings) ?? settings }
+
+    /// Previews `item` in the viewer once the pointer has rested on it a moment, so sweeping across the
+    /// library shows nothing.
+    func beginPreview(_ item: LibraryItem) {
+        previewTask?.cancel()
+        previewCandidate = item.id
+        previewTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            self?.preview = item
+        }
+    }
+
+    /// Ends the preview, or with `item`, only that item's (the pointer may already rest on the next one).
+    func endPreview(_ item: LibraryItem? = nil) {
+        guard item == nil || item?.id == previewCandidate else { return }
+        previewTask?.cancel()
+        previewCandidate = nil
+        if preview != nil { preview = nil }
     }
 
     func rename(_ preset: GradePreset, to name: String) {
@@ -450,6 +481,7 @@ final class Workspace {
     func selectClip(_ id: UUID?) {
         guard let id, id != selectedClipID || media == nil, let index = clips.firstIndex(where: { $0.id == id }) else { return }
         flushContinuousEdit()
+        endPreview()
         syncSelectedClip()
         selectedClipID = id
         pickedClipIDs = [id]

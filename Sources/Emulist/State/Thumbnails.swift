@@ -75,7 +75,7 @@ final class LibraryThumbnails {
     @ObservationIgnored private var presets: [GradePreset] = []
     @ObservationIgnored private var pending: Task<Void, Never>?
 
-    static func id(for preset: GradePreset) -> String { "preset:\(preset.id.uuidString)" }
+    nonisolated static func id(for preset: GradePreset) -> String { "preset:\(preset.id.uuidString)" }
 
     /// A new clip: previews wait for its first frame.
     func reset(orientation: CGAffineTransform) {

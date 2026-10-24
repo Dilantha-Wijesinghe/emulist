@@ -26,6 +26,10 @@ along the bottom.
    which profile it was shot in when you first open that clip.
 2. **Pick a look** in the library. Every thumbnail is your current frame, rendered live. Emulist's own film stocks
    are there from the start; *Download from Fujifilm* adds Fujifilm's official film simulations (see below).
+   Rest the pointer on a look to **preview** it in the viewer (and the scopes) without touching your grade; click
+   to apply it. The eye button turns live preview off. **Search** narrows every collection by name. Right-click
+   any look to add it to **Favorites**, which sit at the top with the last four looks you applied (**Recent**).
+   Recipes are listed under the Fujifilm simulation each one builds on.
 3. **Grade with the primaries** (bottom left), which work *under* the look like grading under a LUT in Resolve,
    so the film's curve keeps every correction graceful:
    - **Lift, Gamma, Gain, Offset wheels.** Drag anywhere on a wheel to move its puck toward a hue (relative and
