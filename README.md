@@ -1,20 +1,60 @@
-# Emulist
+<p align="center">
+  <img src="docs/images/icon.png" width="128" alt="Emulist icon">
+</p>
 
-*Digital footage. Analog soul.*
+<h1 align="center">Emulist</h1>
 
-A native macOS film emulation and color grading app for LOG footage (Swift 6, SwiftUI, Metal, AVFoundation).
-Drop in a clip, pick a film, refine, and export.
+<p align="center">
+  <b>Digital footage. Analog soul.</b><br>
+  A native, open-source film emulation and color grading app for LOG footage on the Mac.
+</p>
 
-## Build & run
+<p align="center">
+  <a href="https://github.com/Dilantha-Wijesinghe/emulist/actions/workflows/ci.yml"><img src="https://github.com/Dilantha-Wijesinghe/emulist/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Dilantha-Wijesinghe/emulist/releases/latest"><img src="https://img.shields.io/github/v/release/Dilantha-Wijesinghe/emulist" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%2014.2%2B%20%C2%B7%20Apple%20silicon-lightgrey" alt="macOS 14.2+ on Apple silicon">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+</p>
 
-Only the Swift toolchain is needed (Command Line Tools; no Xcode). Shaders compile at runtime.
+---
+
+Drop in a clip shot in Apple Log (or S-Log3, V-Log, F-Log), pick a film, refine it, and export. Emulist models
+film the way it works, a negative printed onto paper, with grain, halation and bloom, and grades *under* the look
+like a colorist works under a LUT in DaVinci Resolve. It's written in Swift with SwiftUI and Metal, and renders a
+UHD frame with every effect in about 13 ms.
+
+## Features
+
+- **Film looks.** Seven original stocks, each with its own negative and print response, plus Fujifilm's official
+  film simulations (a free download from Fujifilm) and 14 Fuji X Weekly recipes built on them.
+- **Real grading tools.** Lift, Gamma, Gain and Offset wheels, contrast, saturation, Color Boost, Density, printer
+  lights and six hue vectors with Protect Skin.
+- **Texture.** Grain in log exposure, halation from the red record, and bloom, all resolution independent.
+- **Scopes.** Waveform, RGB parade and vectorscope, computed on the GPU from the picture on screen.
+- **A looks library** rendered live on your own frame, with hover preview, search and favorites.
+- **LUTs both ways.** Import any `.cube` LUT, or export your grade as one for Resolve and other apps.
+- **Many clips.** Copy and paste grades, snapshots, saved looks, and batch export to ProRes, HEVC or H.264.
+
+## Install
+
+Download the latest `Emulist-*.dmg` from [Releases](https://github.com/Dilantha-Wijesinghe/emulist/releases/latest)
+and drag Emulist to Applications. It needs macOS 14.2 or later on Apple silicon.
+
+The app isn't notarized yet, so macOS blocks the first launch. Run this once, then open it as usual:
 
 ```sh
+xattr -dr com.apple.quarantine /Applications/Emulist.app
+```
+
+### Build from source
+
+Only the Swift toolchain is needed (Xcode, or just the Command Line Tools). Shaders compile at runtime.
+
+```sh
+git clone https://github.com/Dilantha-Wijesinghe/emulist.git && cd emulist
 scripts/build-app.sh --open      # builds build/Emulist.app (release) and launches it
 scripts/test.sh                  # unit tests (Swift Testing)
 ```
-
-Requires macOS 14.2+ on Apple Silicon.
 
 ## Using it
 
@@ -171,103 +211,32 @@ input from its name: `F-Log2`, `F-Log`, `S-Log3` or `V-Log`, and otherwise Apple
 as Rec.709 for a gamma 2.4 display, which is the convention for camera and creative LUTs. Imported LUTs live in
 `…/Emulist/Looks/Imported`.
 
-## How the image is made
+## How it works
 
-```
-decode (10-bit Y'CbCr, no OS color conversion)
-  → camera decode: Apple Log / S-Log3 / V-Log → scene-linear
-  → working space: linear Rec.2020, D65, mid grey 0.18; exposure and white balance (Bradford)
-  → softness ("film resolution")
-  → bloom + halation, added as light in scene-linear (half resolution, MPS Gaussian)
-  → grain, as noise in log exposure (density), deterministic per frame
-  → primary grade, on the GPU (log: wheels, contrast, color, push, printer lights)
-  → look LUT (65³, baked in Swift; 33³ while a look control is dragged):
-      hue vectors (log chroma, by hue) →
-      film (negative → print → gamut map)  or  external LUT (via its camera encoding)
-      → fade → encode
-  → scopes, when shown: one GPU pass bins the displayed frame, each scope is drawn from the bins
-```
+The color math (camera decode, film model, primary grade, hue vectors) is plain Swift with unit tests. It's baked
+into lookup tables the GPU samples, except the primary grade, which also runs in a shader so grading never waits
+for a rebake. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) walks through the pipeline, the film model and the
+code, and [docs/adr](docs/adr) records the larger decisions.
 
-- **Color math lives in Swift** (`FilmModel`, `TransferFunction`, `ColorMath`, `PrimaryGrade`) and is
-  unit-tested. The GPU interpolates the baked tables, plus one exception: it runs the primary grade itself, so
-  grading never rebakes a LUT. A test runs the shader's grade against `PrimaryGrade` and requires them to agree to
-  within 0.002 stops. Camera decode is a 4096-entry 1D table, and the film is a 3D LUT over a log shaper covering
-  20 stops.
-- **Film model.** Per channel, in log exposure:
-  1. Negative exposure and push.
-  2. Inter-layer crosstalk and color separation (like dye-coupler interimage effects).
-  3. An asymptotic negative shoulder, so highlights desaturate gracefully.
-  4. Printing light balance.
-  5. A print curve with toe, mid-grey contrast, a soft roll-off into paper white, and a black floor.
-  6. Print saturation, Rec.2020 → 709, and soft gamut compression.
+## Contributing
 
-  Intensity blends the response *parameters* toward neutral, never pixels. That keeps hues stable.
-- **Halation** comes from the red record only. In film, light that passes through the emulsion reflects off the
-  base and re-exposes the red layer. It is added before the film curve, so it shows most on dark surroundings.
-- **Grain** perturbs log exposure, so the print curve shapes it. It fades naturally into pure black and paper
-  white, and it is strongest in the midtones.
-- **Resolution independence.** Effect sizes are fractions of frame height, against a 1080-line reference. The
-  grain canvas never drops below 1080 lines; smaller previews sample a filtered mip level. Preview and
-  full-resolution export therefore match.
-- **Performance** (M3 Pro). The full UHD pipeline with every effect takes about 13 ms per frame. Half
-  resolution takes about 3 ms. Dragging a primaries knob or wheel never rebakes, and edits are applied once per
-  display frame. The viewer's default **Auto** preview renders at half resolution while you drag a control and at
-  full the moment you let go: about 57–60 redraws a second while you drag on a UHD clip, against 47–52 at Full
-  (the SIGNAL row's Preview picker). Playback stays at full resolution; it already keeps the clip's frame rate. A look LUT bake takes about 15 ms (2 ms on the
-  33³ draft grid used while dragging Intensity, Fade or a hue vector; about 32–44 redraws a second). Export runs at about 55 fps for UHD ProRes.
-
-## Research notes
-
-These came from the DaVinci Resolve manual, Apple's SDK and the camera makers' published documentation.
-
-- **Apple Log** constants come from Apple's white paper, via colour-science. 18% grey encodes to 0.4883, which a
-  test checks. Clips declare Apple Log through `kCMFormatDescriptionExtension_LogTransferFunction`.
-- **Apple Log 2** (iPhone 17 Pro) uses an unpublished gamut. Emulist detects it and says so, rather than inventing
-  constants.
-- **Fujifilm's LUTs** take F-Log2 / F-Gamut input (F-Gamut uses the BT.2020 primaries) and output BT.709, per
-  Fujifilm's "Overview of 3D LUTs for F-Log2". The F-Log2 constants come from Fujifilm's data sheet via
-  colour-science; 18% grey encodes to 0.3910, which a test checks.
-- **Measured on macOS 26:**
-  - ColorSync's `itur_709` color space decodes with gamma 2.4.
-  - AVFoundation decodes Rec.709 video with gamma ≈ 1.961.
-
-  That gap is the source of the "QuickTime gamma shift", and it is why there are two output encodings.
-
-## Developer tools
-
-`emulist-cli` renders headlessly with the same engine:
-
-```sh
-swift build -c release --product emulist-cli
-CLI=.build/release/emulist-cli
-scripts/make-test-clip.sh photo.jpg test.mov                 # synthetic Apple Log ProRes from any photo
-$CLI tag-apple-log test.mov tagged.mov                       # declare Apple Log like an iPhone does
-$CLI sheet tagged.mov sheet.png --scale 0.25                 # neutral + every stock on one frame
-$CLI render tagged.mov frame.png --stock nocturne-800 --time 1
-$CLI export tagged.mov out.mp4 --codec hevc --stock aurora-50
-$CLI bench tagged.mov                                        # LUT bake and per-frame GPU time
-$CLI install-fujifilm                                        # download Fujifilm's film simulations
-$CLI looks                                                   # list every look and its id
-$CLI render tagged.mov f.png --stock "lut:Fujifilm/FLog2_to_ETERNA_65grid_V.1.00.cube" --density 40
-```
-
-Any grade setting can be overridden numerically from the command line, e.g. `--colorBoost 40` or `--gain.y 0.3`.
-
-## Layout
-
-```
-Sources/EmulistCore   color science, film model, Metal pipeline, video I/O, project model (no UI)
-Sources/Emulist       SwiftUI app: workspace state, viewer, look library, palettes, analog controls, export
-Sources/emulist-cli   headless rendering, test footage, benchmarks
-Tests/                Swift Testing suites
-scripts/              build-app.sh, test.sh, make-test-clip.sh, make-icon.swift
-```
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers the setup, the ground rules and
+`emulist-cli`, the headless renderer used for look development. Please report security issues privately (see
+[SECURITY.md](SECURITY.md)).
 
 ## Roadmap
 
-- Waveform / vectorscope
 - Custom user stocks (JSON)
 - Curves and qualifiers
 - Gate weave, film breath and dust
 - Canon Log 3
 - Apple Log 2, once Apple publishes it
+
+## License
+
+Emulist is released under the [MIT License](LICENSE).
+
+Emulist is an independent project, not affiliated with or endorsed by Fujifilm, Fuji X Weekly, Kodak, CineStill,
+Apple, Sony, Panasonic or Blackmagic Design (DaVinci Resolve). Their names appear only to describe
+compatibility and to credit the recipes; all trademarks belong to their owners. Fujifilm's LUTs are downloaded from
+Fujifilm on your request and are subject to Fujifilm's terms; they are not distributed with Emulist.

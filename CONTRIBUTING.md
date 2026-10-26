@@ -33,7 +33,9 @@ $CLI sheet tagged.mov sheet.png --scale 0.25                 # neutral + every l
 $CLI render tagged.mov frame.png --stock nocturne-800 --time 1
 $CLI export tagged.mov out.mp4 --codec hevc --stock aurora-50
 $CLI bench tagged.mov                                        # LUT bake and per-frame GPU time
+$CLI install-fujifilm                                        # download Fujifilm's film simulations
 $CLI looks                                                   # list every look and its id
+$CLI render tagged.mov f.png --stock "lut:Fujifilm/FLog2_to_ETERNA_65grid_V.1.00.cube" --density 40
 $CLI cube look.cube --stock golden-200                       # bake a look as a .cube LUT
 ```
 
