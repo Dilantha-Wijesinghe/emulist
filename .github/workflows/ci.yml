@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Build & test
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain
+        run: swift --version
+      - name: Build (warnings are errors)
+        run: swift build -c release -Xswiftc -warnings-as-errors
+      - name: Test
+        run: scripts/test.sh
+      - name: Package
+        run: scripts/package.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Emulist-${{ github.sha }}
+          path: build/dist/*.dmg
+          retention-days: 7

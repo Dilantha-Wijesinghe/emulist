@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & publish
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the app version
+        run: |
+          version="$(plutil -extract CFBundleShortVersionString raw packaging/macos/Info.plist)"
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "::error::Tag $GITHUB_REF_NAME does not match version $version"; exit 1; }
+
+      - name: Test
+        run: scripts/test.sh
+
+      - name: Build and package
+        run: scripts/package.sh
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '
+            /^## \[/ { if (found) exit; if (index($0, "[" v "]")) { found = 1; next } }
+            /^\[[^]]+\]: / { next }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "::error::No CHANGELOG.md section for $version"; exit 1; }
+          cat >> notes.md <<'NOTES'
+
+          ### Install
+          Download `Emulist-*.dmg` and drag Emulist to Applications. Emulist needs macOS 14.2 or later on Apple silicon.
+          The app is not notarized yet, so macOS blocks the first launch. Run
+          `xattr -dr com.apple.quarantine /Applications/Emulist.app` once, then open it as usual.
+          Verify downloads with `SHA256SUMS.txt`.
+          NOTES
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Emulist ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md \
+            build/dist/*.dmg build/dist/*.zip build/dist/SHA256SUMS.txt

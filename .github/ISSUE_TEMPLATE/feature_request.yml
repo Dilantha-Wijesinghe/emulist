@@ -1,0 +1,11 @@
+name: Feature request
+description: Suggest an idea, a camera profile or a look
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+      description: For a camera profile, link its published LOG curve and gamut. Looks must be original, not taken from commercial products.
+    validations:
+      required: true
