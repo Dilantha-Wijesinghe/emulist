@@ -253,7 +253,8 @@ private struct ProfileSheet: View {
 }
 
 private extension NSItemProvider {
-    func loadURL() async throws -> URL? {
+    /// Main-actor isolated, like the drop handler that calls it: a provider isn't `Sendable`.
+    @MainActor func loadURL() async throws -> URL? {
         try await withCheckedThrowingContinuation { continuation in
             _ = loadObject(ofClass: URL.self) { url, error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: url) }

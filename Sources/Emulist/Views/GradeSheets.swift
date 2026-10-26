@@ -175,7 +175,7 @@ struct ExportCubeSheet: View {
         isExporting = true
         Task {
             // A 65-point LUT is 275k lines of text: bake and write off the main thread.
-            let result = await Task.detached {
+            let result = await Task.detached { [settings] in
                 Result { try CubeLUT(baking: settings, input: input, size: size, title: title).cubeData().write(to: url, options: .atomic) }
             }.value
             isExporting = false
