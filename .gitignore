@@ -22,3 +22,10 @@ DerivedData/
 # macOS
 .DS_Store
 *.cube
+
+# Signing and notarization material must never be committed
+*.p12
+*.p8
+
+# Personal Claude Code settings
+.claude/settings.local.json

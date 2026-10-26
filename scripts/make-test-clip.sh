@@ -7,7 +7,8 @@
 set -euo pipefail
 source="$1"; out="$2"; seconds="${3:-2}"
 root="${0:A:h}/.."
-cli="$root/.build/debug/emulist-cli"
+swift build -c release --product emulist-cli --package-path "$root" >/dev/null
+cli="$root/.build/release/emulist-cli"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
